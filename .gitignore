@@ -1,0 +1,6 @@
+.env
+.DS_Store
+/storage/private/*
+!/storage/private/.htaccess
+/storage/backups/*
+!/storage/backups/.htaccess

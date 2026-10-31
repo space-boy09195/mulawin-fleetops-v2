@@ -5,6 +5,10 @@
  * =====================================================================
  *  FMS PDF II.L and pp.17-18 (Maintenance module):
  *    - Incident reports appear here automatically (Trips module).
+ *    - Bagong PDF Scenario C: ang Maintenance ang nag-a-assess kung Minor
+ *      o Major ang sira (assess). Minor: mekaniko sa lugar, tapos
+ *      "Repaired - Cleared to Continue". Major: truck Under Maintenance,
+ *      trip For Reschedule, ayusin, tapos Available ulit.
  *    - Suggested process: record issue -> vehicle -> photos/documents ->
  *      activity -> parts and materials used -> costs -> status ->
  *      completion and return the vehicle to Available.
@@ -25,7 +29,8 @@ final class Maintenance {
     public static function read(array $u, string $page, array $q): array {
         $p = db();
         $data = readSections([
-            'jobs' => fn() => many($p, "SELECT m.*, v.plate_number, v.truck_type, v.status AS vehicle_status, i.severity, t.trip_ref, t.status AS trip_status,
+            'jobs' => fn() => many($p, "SELECT m.*, v.plate_number, v.truck_type, v.status AS vehicle_status, i.severity, i.status AS incident_status,
+                    i.location AS incident_location, i.problem AS incident_problem, i.incident_at, t.trip_ref, t.status AS trip_status,
                     us.full_name AS created_by_name,
                     (SELECT COALESCE(SUM(mu.quantity*mu.unit_cost),0) FROM maintenance_parts_used mu WHERE mu.maintenance_job_id=m.id) AS parts_cost,
                     (SELECT COALESCE(SUM(mc.amount),0) FROM maintenance_costs mc WHERE mc.maintenance_job_id=m.id) AS other_cost
@@ -56,6 +61,7 @@ final class Maintenance {
             'job_add' => self::jobAdd($u, $d),
             'job_update' => self::jobUpdate($u, $d),
             'job_complete' => self::jobComplete($u, $d),
+            'assess' => self::assess($u, $d),
             'part_request' => self::partRequest($u, $d),
             'part_use' => self::partUse($u, $d),
             'cost_add' => self::costAdd($u, $d),
@@ -83,7 +89,7 @@ final class Maintenance {
             $v = one($p, 'SELECT * FROM vehicles WHERE id=? AND active=1 FOR UPDATE', [$vid]);
             must((bool)$v, 'Truck not found.', 404);
             $trip = FleetState::activeTrip($p, $vid);
-            must(!$trip || !in_array($trip['status'], ['In Progress', 'Returned'], true), 'Truck is on trip ' . ($trip['trip_ref'] ?? '') . '. The dispatcher reports road problems as an incident.', 409);
+            must(!$trip || !in_array($trip['status'], FleetState::ON_ROAD_TRIP_STATUSES, true), 'Truck is on trip ' . ($trip['trip_ref'] ?? '') . '. The dispatcher reports road problems as an incident.', 409);
             must(!$trip, 'Truck is reserved for trip ' . ($trip['trip_ref'] ?? '') . '. Ask the Operations Head to assign another truck first.', 409);
             $id = self::newJob($p, ['vehicle_id' => $vid, 'source' => 'Manual', 'maintenance_type' => $type, 'description' => $desc,
                 'assigned_to' => $who, 'expected_completion' => $exp, 'status' => 'Reported', 'odometer_at_service' => $v['odometer_km'], 'created_by' => $u['id']]);
@@ -102,6 +108,7 @@ final class Maintenance {
         return transaction(function (PDO $p) use ($u, $id, $status, $exp, $who) {
             $j = one($p, 'SELECT m.*, v.plate_number FROM maintenance_jobs m JOIN vehicles v ON v.id=m.vehicle_id WHERE m.id=? FOR UPDATE', [$id]);
             must($j && !in_array($j['status'], ['Completed', 'Cancelled'], true), 'Job is not open.', 409);
+            self::mustBeAssessed($p, $j);
             run($p, "UPDATE maintenance_jobs SET status=?, expected_completion=?, assigned_to=?, started_at=COALESCE(started_at, IF(?='In Progress', NOW(), NULL)) WHERE id=?",
                 [$status, $exp, $who, $status, $id]);
             audit($p, $u['id'], 'Maintenance', $j['job_number'], 'job updated', $j['status'] . ' -> ' . $status . ($exp ? "; expected $exp" : ''));
@@ -112,10 +119,62 @@ final class Maintenance {
         });
     }
 
+    /** Incident job: kailangang ma-assess muna (Minor o Major) bago galawin. */
+    private static function mustBeAssessed(PDO $p, array $j): void {
+        if (!$j['incident_id']) return;
+        $i = one($p, 'SELECT severity FROM incidents WHERE id=?', [$j['incident_id']]);
+        must($i && $i['severity'], 'Assess the incident first (Minor or Major damage).', 409);
+    }
+
+    /**
+     * Scenario C step 3: Maintenance -> Assess Truck Damage.
+     *   Minor (C.1): magpapadala ng mekaniko sa lokasyon; tuloy ang trip pagkatapos.
+     *   Major (C.2): truck "Under Maintenance", trip "For Reschedule",
+     *                hindi pwedeng i-assign sa ibang trip habang inaayos.
+     */
+    private static function assess(array $u, array $d): array {
+        $id = idField($d, 'job_id');
+        $sev = choiceField($d, 'severity', ['Minor', 'Major']);
+        $notes = optField($d, 'notes', 255);
+        $mechanic = optField($d, 'assigned_to', 150);
+        $exp = dateField($d, 'expected_completion', false);
+        return transaction(function (PDO $p) use ($u, $id, $sev, $notes, $mechanic, $exp) {
+            $j = one($p, 'SELECT m.*, v.plate_number FROM maintenance_jobs m JOIN vehicles v ON v.id=m.vehicle_id WHERE m.id=? FOR UPDATE', [$id]);
+            must($j && $j['incident_id'], 'This job did not come from an incident report.', 409);
+            must(!in_array($j['status'], ['Completed', 'Cancelled'], true), 'Job is not open.', 409);
+            $i = one($p, 'SELECT * FROM incidents WHERE id=? FOR UPDATE', [$j['incident_id']]);
+            must($i && !$i['severity'], 'This incident was already assessed as ' . ($i['severity'] ?? '') . '.', 409);
+            $t = one($p, 'SELECT * FROM trips WHERE id=? FOR UPDATE', [$i['trip_id']]);
+            must($t && $t['status'] === 'On Hold - Incident Reported', 'The trip is not on hold for this incident.', 409);
+            $ev = $p->prepare('INSERT INTO trip_events (trip_id, actor_id, event_type, from_status, to_status, notes) VALUES (?,?,?,?,?,?)');
+            if ($sev === 'Minor') {
+                run($p, "UPDATE incidents SET severity='Minor', status='Under Repair', assessed_by=?, assessed_at=NOW(), action_taken=? WHERE id=?", [$u['id'], $notes, $i['id']]);
+                run($p, "UPDATE maintenance_jobs SET maintenance_type='Roadside Repair', status='In Progress', started_at=COALESCE(started_at, NOW()), assigned_to=?, expected_completion=? WHERE id=?", [$mechanic, $exp, $id]);
+                $ev->execute([$t['id'], $u['id'], 'incident assessed: minor damage (mechanic sent)', $t['status'], $t['status'], cut((string)$notes, 500)]);
+                Notify::roles($p, [$t['dispatcher_role'], 'operations_head'], 'Minor damage', $j['plate_number'] . ' (' . $t['trip_ref'] . '): minor damage, mechanic sent to the location.', 'trips');
+                $msg = 'Assessed as Minor. Mechanic sent; confirm the repair when the truck is safe to continue.';
+            } else {
+                run($p, "UPDATE incidents SET severity='Major', status='For Reschedule', assessed_by=?, assessed_at=NOW(), action_taken=? WHERE id=?", [$u['id'], $notes, $i['id']]);
+                run($p, 'UPDATE maintenance_jobs SET assigned_to=?, expected_completion=? WHERE id=?', [$mechanic, $exp, $id]);
+                run($p, "UPDATE trips SET status='For Reschedule' WHERE id=?", [$t['id']]);
+                $ev->execute([$t['id'], $u['id'], 'incident assessed: major damage (truck returned for repair)', $t['status'], 'For Reschedule', cut((string)$notes, 500)]);
+                FleetState::setStatus($p, (int)$j['vehicle_id'], 'Under Maintenance', $u['id'], 'Major damage on ' . $t['trip_ref']);
+                FleetState::setCrew($p, [$t['driver_id'], $t['driver2_id'], $t['helper_id']], 'On Trip', 'Available');
+                Notify::roles($p, [$t['dispatcher_role'], 'operations_head'], 'Major damage', $j['plate_number'] . ' (' . $t['trip_ref'] . '): major damage. Truck is Under Maintenance and the trip is For Reschedule.', 'trips');
+                $msg = 'Assessed as Major. Truck is Under Maintenance and the trip is For Reschedule.';
+            }
+            audit($p, $u['id'], 'Maintenance', $j['job_number'], 'incident assessed', $sev . ($notes ? ": $notes" : ''));
+            return ['job_id' => $id, 'message' => $msg];
+        });
+    }
+
     /**
      * Complete a job and return the truck to Available when nothing else is
      * open (PDF II.L step 57 and p.18 "pwede na baguhin ni maintenance yung
      * status as available").
+     * Incident jobs (bagong PDF Scenario C):
+     *   Minor -> incident "Repaired - Cleared to Continue"; dispatcher ang mag-Resume Trip.
+     *   Major -> truck Available; dispatcher ang mag-Reschedule Trip.
      */
     private static function jobComplete(array $u, array $d): array {
         $id = idField($d, 'job_id');
@@ -123,8 +182,14 @@ final class Maintenance {
         return transaction(function (PDO $p) use ($u, $id, $notes) {
             $j = one($p, 'SELECT m.*, v.plate_number, v.odometer_km FROM maintenance_jobs m JOIN vehicles v ON v.id=m.vehicle_id WHERE m.id=? FOR UPDATE', [$id]);
             must($j && !in_array($j['status'], ['Completed', 'Cancelled'], true), 'Job is not open.', 409);
+            self::mustBeAssessed($p, $j);
             run($p, "UPDATE maintenance_jobs SET status='Completed', completed_at=NOW(), description=CONCAT(description, ?) WHERE id=?", [$notes ? "\nDone: $notes" : '', $id]);
-            if ($j['incident_id']) run($p, "UPDATE incidents SET status='Resolved', resolved_at=NOW() WHERE id=?", [$j['incident_id']]);
+            $inc = $j['incident_id'] ? one($p, 'SELECT * FROM incidents WHERE id=? FOR UPDATE', [$j['incident_id']]) : null;
+            if ($inc && $inc['severity'] === 'Minor') {
+                run($p, "UPDATE incidents SET status='Repaired - Cleared to Continue', resolved_at=NOW() WHERE id=?", [$inc['id']]);
+            } elseif ($inc) {
+                run($p, "UPDATE incidents SET status='Resolved', resolved_at=NOW() WHERE id=?", [$inc['id']]);
+            }
             if ($j['maintenance_type'] === 'Preventive Maintenance') {
                 // Reset the km counter after PM (TODO C08: confirm reset rule per maintenance type).
                 run($p, 'UPDATE vehicles SET km_since_pm=0 WHERE id=?', [$j['vehicle_id']]);
@@ -133,15 +198,17 @@ final class Maintenance {
             $status = FleetState::reconcile($p, (int)$j['vehicle_id'], $u['id'], $j['job_number'] . ' completed');
             audit($p, $u['id'], 'Maintenance', $j['job_number'], 'job completed', $j['plate_number'] . ' is now ' . $status);
             $msg = 'Job completed. Truck ' . $j['plate_number'] . ' is now ' . $status . '.';
-            // If a major incident had rescheduled a trip, tell the dispatcher team it can be re-dispatched.
-            if ($j['trip_id'] && $status === 'Available') {
-                $t = one($p, 'SELECT trip_ref, status, dispatcher_role FROM trips WHERE id=?', [$j['trip_id']]);
-                if ($t && $t['status'] === 'Rescheduled') {
-                    Notify::roles($p, [$t['dispatcher_role'], 'operations_head'], 'Truck repaired', $j['plate_number'] . ' is repaired. ' . $t['trip_ref'] . ' can now be re-dispatched as the next attempt.', 'trips');
-                    $msg .= ' Trip ' . $t['trip_ref'] . ' can now be re-dispatched.';
-                }
+            $t = $j['trip_id'] ? one($p, 'SELECT trip_ref, status, dispatcher_role FROM trips WHERE id=?', [$j['trip_id']]) : null;
+            if ($inc && $inc['severity'] === 'Minor' && $t && $t['status'] === 'On Hold - Incident Reported') {
+                // Scenario C.1 step 6: abiso sa dispatcher na pwede nang ituloy ang biyahe.
+                Notify::roles($p, [$t['dispatcher_role'], 'operations_head'], 'Repaired - Cleared to Continue', $j['plate_number'] . ' is repaired. ' . $t['trip_ref'] . ' can resume (Resume Trip).', 'trips');
+                $msg = 'Repair confirmed: Repaired - Cleared to Continue. The dispatcher can now resume ' . $t['trip_ref'] . '.';
+            } elseif ($t && $t['status'] === 'For Reschedule' && $status === 'Available') {
+                // Scenario C.2 step 6: available na ulit ang truck; abiso sa dispatcher.
+                Notify::roles($p, [$t['dispatcher_role'], 'operations_head'], 'Truck available', $j['plate_number'] . ' is repaired and Available. ' . $t['trip_ref'] . ' can now be rescheduled.', 'trips');
+                $msg .= ' Trip ' . $t['trip_ref'] . ' can now be rescheduled by the dispatcher.';
             }
-            Notify::roles($p, ['operations_head'], 'Truck available', $msg, 'fleet');
+            Notify::roles($p, ['operations_head'], 'Truck status', $msg, 'fleet');
             return ['job_id' => $id, 'message' => $msg];
         });
     }

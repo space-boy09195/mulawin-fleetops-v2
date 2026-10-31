@@ -55,12 +55,8 @@ return [
     'values' => [
 
         // ---------- APPROVALS ----------
-        'fund_approval_threshold' => [
-            'group' => 'Approvals', 'label' => 'Trip fund / budget approval limit (PHP)',
-            'value' => 15000, 'unit' => 'PHP',
-            'help'  => 'Kung ang fund request ay HANGGANG dito, Operations Head ang mag-a-approve. Kung LAMPAS, Admin ang mag-a-approve.',
-            'source' => 'FMS PDF p.13: Admin approves budget request >15000; Operations Head approves <=15000',
-        ],
+        // Paalala: WALA nang PHP 15,000 limit sa trip fund. Ayon sa bagong PDF,
+        // Operations Head ang nag-a-approve ng LAHAT ng fund request.
         'purchase_approval_threshold' => [
             'group' => 'Approvals', 'label' => 'Purchase request approval limit (PHP)',
             'value' => 10000, 'unit' => 'PHP',
@@ -68,15 +64,16 @@ return [
             'source' => 'FMS PDF p.17: above 10k Admin approves; 10k and below Finance approves',
         ],
 
-        // ---------- TRIP ALLOWANCE / FUEL ----------
+        // ---------- FUEL (para sa projected P&L kada biyahe lang) ----------
+        // Hindi na ito kasama sa fund request (inalis ang fuel at toll sa fund).
         'km_per_liter' => [
-            'group' => 'Trip Allowance and Fuel', 'label' => 'Kilometers per liter of diesel',
+            'group' => 'Fuel (projected P&L)', 'label' => 'Kilometers per liter of diesel',
             'value' => 4, 'unit' => 'km/L',
             'help'  => 'Ilang km ang natatakbo ng truck sa 1 litro. Ginagamit sa fuel computation: (km ÷ ito) × presyo ng diesel.',
             'source' => 'Dummy Computation for Billing PL.xlsx, cell K26 "1L/ 4KM/ 100.00/ L", G53 =G52/4',
         ],
         'fuel_price_per_liter' => [
-            'group' => 'Trip Allowance and Fuel', 'label' => 'Diesel price per liter (PHP)',
+            'group' => 'Fuel (projected P&L)', 'label' => 'Diesel price per liter (PHP)',
             'value' => 100, 'unit' => 'PHP/L',
             'help'  => 'Presyo ng diesel kada litro. Palitan kapag nagbago ang presyo.',
             'source' => 'Dummy Computation for Billing PL.xlsx, cell G54 =G53*100',
@@ -157,15 +154,17 @@ return [
     // -----------------------------------------------------------------
     'items' => [
 
-        // Trip allowance / fund request na automatic na kino-compute ng system.
-        // Source: FMS PDF pp.16-17 ("cacalculate ni system yung need na fund/allowance")
-        // Walang eksaktong formula ang PDF, kaya ang ginamit ay ang fuel at RFID
-        // ng Billing P&L workbook. Dagdagan dito kung may iba pang allowance.
+        // FUND REQUEST CATEGORIES (preset na halaga).
+        // Source: bagong FMS PDF, Scenario B step 4. Pipiliin ng dispatcher ang
+        // applicable; ang system ang kukuha ng halaga at magko-compute ng total.
+        // Pwedeng magdagdag ang dispatcher ng ibang category sa mismong request.
+        // Para magdagdag o magpalit ng preset: Formula Settings > Fund request categories.
         'trip_allowance' => [
-            ['name' => 'Fuel', 'calc' => 'fuel', 'amount' => 0,
-             'source' => 'Billing P&L: Fuel & Oil = (KM / 4) x 100'],
-            ['name' => 'RFID / Toll', 'calc' => 'route_toll', 'amount' => 0,
-             'source' => 'Billing P&L: RFID row (toll per route)'],
+            ['name' => 'Forklift Operator', 'calc' => 'fixed', 'amount' => 100, 'source' => 'FMS PDF v2 Scenario B step 4'],
+            ['name' => 'Checker', 'calc' => 'fixed', 'amount' => 100, 'source' => 'FMS PDF v2 Scenario B step 4'],
+            ['name' => 'Passway', 'calc' => 'fixed', 'amount' => 200, 'source' => 'FMS PDF v2 Scenario B step 4'],
+            ['name' => 'Driver Meal Allowance', 'calc' => 'fixed', 'amount' => 300, 'source' => 'FMS PDF v2 Scenario B step 4'],
+            ['name' => 'Helper Meal Allowance', 'calc' => 'fixed', 'amount' => 200, 'source' => 'FMS PDF v2 Scenario B step 4'],
         ],
 
         // Projected Profit and Loss kada biyahe (Billing P&L workbook, column G).

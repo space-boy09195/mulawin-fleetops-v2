@@ -9,16 +9,19 @@ SET NAMES utf8mb4;
 -- OPERATIONS MODULE  (FMS PDF II.D, II.E, II.F, II.G, pp.16-18)
 -- =====================================================================
 
--- Trip status flow:
---   Pending Approval  (Scenario B: dispatcher encoded, waiting for Ops Head)
---   Awaiting Resources (approved but no free truck/driver yet)
---   Assigned          (system auto-assigned truck, driver, helper)
---   Ready for Dispatch (pre-departure checklist all OK)
---   In Progress       (dispatched)
---   Returned          (arrival checklist done)
---   Completed         (dispatcher submitted the completed trip record)
---   Rescheduled       (major incident; waiting for repair, then 2nd attempt)
+-- Trip status flow (bagong FMS PDF, Scenario A, B at C):
+--   Pending Review     (Scenario B: dispatcher delivery request, waiting for Ops Head)
+--   Awaiting Resources (confirmed but no free truck/driver yet)
+--   Pre-Assigned       (system auto-assigned truck, driver, helper)
+--   Ready for Dispatch (pre-dispatch checklist all OK)
+--   Dispatched         (dispatcher confirmed dispatch; fund was Released)
+--   On Hold - Incident Reported (truck breakdown, Maintenance assessing)
+--   In Transit         (resumed after a minor repair)
+--   For Reschedule     (major damage; truck under repair)
+--   Returned           (arrival checklist done)
+--   Completed          (dispatcher submitted the completed trip record)
 --   Cancelled / Rejected
+-- attempt_number: 1 = first dispatch; 2 = Second Attempt after major damage.
 CREATE TABLE trips (
   id INT AUTO_INCREMENT PRIMARY KEY,
   trip_ref VARCHAR(32) NOT NULL UNIQUE,
@@ -45,12 +48,10 @@ CREATE TABLE trips (
   driver2_id INT NULL COMMENT 'car carrier DRIVER 2',
   helper_id INT NULL,
   assignment_mode VARCHAR(20) NULL COMMENT 'Auto or Manual',
-  status VARCHAR(35) NOT NULL DEFAULT 'Pending Approval',
+  status VARCHAR(35) NOT NULL DEFAULT 'Pending Review',
   attempt_number INT NOT NULL DEFAULT 1,
   approved_by INT NULL,
   approved_at DATETIME NULL,
-  ops_cleared_by INT NULL,
-  ops_cleared_at DATETIME NULL,
   client_confirmed_at DATETIME NULL COMMENT 'container: booking/nomination confirmed; wing van: trip confirmed with client',
   pre_advice_sent_at DATETIME NULL COMMENT 'container: pre-advice sent to client',
   client_advised_at DATETIME NULL COMMENT 'wing van: truck details and plate given to client',
@@ -132,21 +133,27 @@ CREATE TABLE inspections (
   FOREIGN KEY (actor_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Incidents reported by dispatcher (driver calls dispatcher).
--- Minor: mechanic sent, trip continues. Major: trip Rescheduled.
+-- Incidents reported by dispatcher (driver calls dispatcher). Bagong PDF Scenario C.
+-- Maintenance assesses severity:
+--   Minor: Reported -> Under Repair -> Repaired - Cleared to Continue -> Resolved (trip resumed)
+--   Major: Reported -> For Reschedule -> Resolved (truck repaired)
 CREATE TABLE incidents (
   id INT AUTO_INCREMENT PRIMARY KEY,
   trip_id INT NOT NULL,
   vehicle_id INT NOT NULL,
   attempt_number INT NOT NULL DEFAULT 1,
-  severity VARCHAR(10) NOT NULL,
-  details TEXT NOT NULL,
+  severity VARCHAR(10) NULL COMMENT 'Minor or Major, set by Maintenance assessment',
+  incident_at DATETIME NULL COMMENT 'date and time of incident',
+  details TEXT NOT NULL COMMENT 'incident description',
+  problem VARCHAR(255) NULL COMMENT 'reported problem or damage',
   location VARCHAR(200) NULL,
   cause VARCHAR(255) NULL COMMENT 'TRIPS & DAMAGES: CAUSE (IF WITH DAMAGE)',
   damaged_unit VARCHAR(150) NULL COMMENT 'TRIPS & DAMAGES: DAMAGE UNIT / VIN',
   action_taken VARCHAR(255) NULL,
-  status VARCHAR(30) NOT NULL DEFAULT 'Reported',
+  status VARCHAR(40) NOT NULL DEFAULT 'Reported',
   reported_by INT NOT NULL,
+  assessed_by INT NULL,
+  assessed_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   resolved_at DATETIME NULL,
   FOREIGN KEY (trip_id) REFERENCES trips(id),
@@ -176,25 +183,22 @@ CREATE TABLE waybills (
 -- FINANCE MODULE  (FMS PDF II.I, pp.16-17)
 -- =====================================================================
 
--- Fund request status flow (PDF pp.13, 16-17):
---   Pending Approval  -> Ops Head (<= limit) or Admin (> limit)
---   Approved          -> Finance processes it
---   Pending Release   -> Finance approved, waiting for checklist
---   Ready for Release -> dispatcher clicked Ready for Dispatch
---   Released          -> Finance released the money
+-- Fund request status flow (bagong FMS PDF, Scenario A steps 3-5, B steps 4-6):
+--   Pending Approval  -> dispatcher submitted; Operations Head approves (no amount limit)
+--   Ready for Release -> Ops Head approved; Finance can release (even before the checklist)
+--   Released          -> Finance confirmed release
 --   Completed         -> dispatcher confirmed dispatch
---   Rejected
+--   Rejected          -> back to the dispatcher for revision and resubmission
 CREATE TABLE fund_requests (
   id INT AUTO_INCREMENT PRIMARY KEY,
   trip_id INT NOT NULL,
   attempt_number INT NOT NULL DEFAULT 1,
   amount DECIMAL(12,2) NOT NULL,
-  breakdown_json TEXT NULL COMMENT 'computed lines and the formula values used',
-  approver_role VARCHAR(30) NOT NULL,
+  breakdown_json TEXT NULL COMMENT 'selected categories, added lines and the preset amounts used',
+  approver_role VARCHAR(30) NOT NULL DEFAULT 'operations_head',
   status VARCHAR(30) NOT NULL DEFAULT 'Pending Approval',
-  requested_by INT NULL COMMENT 'NULL = created automatically by the system',
+  requested_by INT NULL COMMENT 'dispatcher who submitted the fund request',
   approved_by INT NULL, approved_at DATETIME NULL,
-  processed_by INT NULL, processed_at DATETIME NULL,
   released_by INT NULL, released_at DATETIME NULL,
   release_method VARCHAR(40) NULL,
   release_reference VARCHAR(100) NULL,

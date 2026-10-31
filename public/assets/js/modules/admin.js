@@ -72,7 +72,7 @@ App.page('settings', {
         <div class="p-2 small text-muted">Computation types: ${s.calcs.map(c => `<b>${c}</b> = ${calcHelp[c]}`).join(' · ')}</div></form>`);
     });
     const ex = d.example;
-    html += UI.card('Example with the current values (Billing P&L sample: 143 km, RFID ₱651, rate ₱15,000)', `<div class="row p-3"><div class="col-md-6"><h6>Trip allowance</h6>${UI.breakdown(ex.allowance.lines, ex.allowance.total, 'Fund request')}</div>
+    html += UI.card('Example with the current values (Billing P&L sample for the projected P&L: 143 km, RFID ₱651, rate ₱15,000)', `<div class="row p-3"><div class="col-md-6"><h6>Fund request categories</h6><p class="small text-muted mb-1">Preset amounts. The dispatcher picks only the applicable ones; the total below is if all are picked.</p>${UI.breakdown(ex.allowance.lines, ex.allowance.total, 'All categories')}</div>
       <div class="col-md-6"><h6>Projected P&L</h6><p class="small mb-1">Gross sales ${UI.money(ex.pnl.gross_sales)}</p>${UI.breakdown(ex.pnl.expenses, ex.pnl.total_expense, 'Total expense')}<p class="mt-2"><b>Net income ${UI.money(ex.pnl.net_income)}</b> (${ex.pnl.margin_percent}%)</p></div></div>`);
     ctx.el.innerHTML = html;
     ctx.el.querySelectorAll('form[data-key]').forEach(f => {

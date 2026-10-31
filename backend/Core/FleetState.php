@@ -11,8 +11,13 @@ declare(strict_types=1);
 
 final class FleetState {
     public const STATUSES = ['Available', 'Assigned', 'On Trip', 'Under Maintenance', 'Unavailable'];
-    /** Trip statuses that still hold the truck and crew. */
-    public const HOLDING_TRIP_STATUSES = ['Assigned', 'Ready for Dispatch', 'In Progress', 'Returned'];
+    /**
+     * Trip statuses kung saan nasa labas ang truck (bagong FMS PDF flow):
+     * Dispatched -> (incident) On Hold - Incident Reported -> (minor, naayos) In Transit -> Returned.
+     */
+    public const ON_ROAD_TRIP_STATUSES = ['Dispatched', 'On Hold - Incident Reported', 'In Transit', 'Returned'];
+    /** Trip statuses that still hold the truck and crew (reserved or on the road). */
+    public const HOLDING_TRIP_STATUSES = ['Pre-Assigned', 'Ready for Dispatch', 'Dispatched', 'On Hold - Incident Reported', 'In Transit', 'Returned'];
 
     /** Changes a truck status and writes the status log (for down-truck days). */
     public static function setStatus(PDO $p, int $vehicleId, string $to, ?int $actorId, string $reason = ''): void {
@@ -31,7 +36,7 @@ final class FleetState {
         $sql = "SELECT id, status, trip_ref FROM trips WHERE vehicle_id=? AND status IN ($marks)";
         if ($excludeTripId) { $sql .= ' AND id<>?'; $args[] = $excludeTripId; }
         // A trip already on the road comes first, so the truck shows "On Trip".
-        return one($p, $sql . " ORDER BY FIELD(status,'In Progress','Returned','Ready for Dispatch','Assigned'), id LIMIT 1", $args);
+        return one($p, $sql . " ORDER BY FIELD(status,'Dispatched','On Hold - Incident Reported','In Transit','Returned','Ready for Dispatch','Pre-Assigned'), id LIMIT 1", $args);
     }
 
     public static function openJob(PDO $p, int $vehicleId, ?int $excludeJobId = null): ?array {
@@ -53,7 +58,7 @@ final class FleetState {
         $trip = self::activeTrip($p, $vehicleId);
         // A roadside (minor) repair does not take the truck off its trip.
         $roadside = $job && $job['maintenance_type'] === 'Roadside Repair';
-        if ($trip && in_array($trip['status'], ['In Progress', 'Returned'], true)) $next = 'On Trip';
+        if ($trip && in_array($trip['status'], self::ON_ROAD_TRIP_STATUSES, true)) $next = 'On Trip';
         elseif ($job && !$roadside) $next = 'Under Maintenance';
         elseif ($trip) $next = 'Assigned';
         elseif ($v['status'] === 'Unavailable') $next = 'Unavailable';

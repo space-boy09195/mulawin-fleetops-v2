@@ -27,13 +27,13 @@ final class Settings {
     public const CALC_TYPES = ['fixed', 'percent_of_rate', 'per_day', 'per_km', 'per_trip', 'fuel', 'route_toll', 'manual', 'ledger'];
     /** Which calc types make sense for each list. */
     public const SCOPE_CALCS = [
-        'trip_allowance'    => ['fixed', 'per_km', 'fuel', 'route_toll', 'percent_of_rate'],
+        'trip_allowance'    => ['fixed'],
         'trip_pnl_expense'  => ['fixed', 'per_km', 'fuel', 'route_toll', 'percent_of_rate'],
         'payroll_earning'   => ['manual', 'fixed', 'per_day', 'per_trip'],
         'payroll_deduction' => ['manual', 'fixed', 'per_day', 'per_trip', 'ledger'],
     ];
     public const SCOPE_LABELS = [
-        'trip_allowance'    => 'Trip allowance / fund request (automatic)',
+        'trip_allowance'    => 'Fund request categories (preset amounts the dispatcher picks)',
         'trip_pnl_expense'  => 'Projected P&L expenses per trip',
         'payroll_earning'   => 'Payroll additional earnings',
         'payroll_deduction' => 'Payroll deductions',
@@ -41,7 +41,7 @@ final class Settings {
     /** Which roles may edit which settings group / item scope (Admin may edit everything). */
     public const EDITORS = [
         'Approvals' => ['admin'],
-        'Trip Allowance and Fuel' => ['admin', 'finance'],
+        'Fuel (projected P&L)' => ['admin', 'finance'],
         'Car Carrier' => ['admin'],
         'Maintenance' => ['admin'],
         'Inspection' => ['admin'],

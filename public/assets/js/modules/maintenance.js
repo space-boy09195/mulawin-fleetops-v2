@@ -3,7 +3,7 @@
 'use strict';
 App.page('maintenance', {
   title: 'Maintenance',
-  subtitle: 'Repair requests (incl. incidents), preventive maintenance, parts used, costs and expected availability.',
+  subtitle: 'Incident assessment (Minor or Major), repair requests, preventive maintenance, parts used, costs and expected availability.',
   render(ctx) {
     const d = ctx.data, edit = d.can.edit, jobs = d.jobs || [];
     const open = jobs.filter(j => !['Completed', 'Cancelled'].includes(j.status));
@@ -33,7 +33,9 @@ App.page('maintenance', {
       { name: 'notes', label: 'Notes', col: 12 }], 'Maintenance.part_request', { size: '' });
 
     const jobCost = (j) => +j.parts_cost + +j.other_cost;
+    const toAssess = (j) => j.incident_id && !j.severity && !['Completed', 'Cancelled'].includes(j.status);
     ctx.el.innerHTML = UI.cards([
+      { label: 'Incidents to assess', value: jobs.filter(toAssess).length, icon: 'bi-exclamation-triangle', color: 'red' },
       { label: 'Open jobs', value: open.length, icon: 'bi-tools', color: 'amber' },
       { label: 'Trucks under maintenance', value: (d.vehicles || []).filter(v => v.status === 'Under Maintenance').length, icon: 'bi-truck', color: 'red' },
       { label: 'Roadside repairs (minor incidents)', value: open.filter(j => j.maintenance_type === 'Roadside Repair').length, icon: 'bi-geo-alt', color: 'amber' },
@@ -42,13 +44,16 @@ App.page('maintenance', {
     ]);
     const jobActions = (j) => {
       if (!edit || ['Completed', 'Cancelled'].includes(j.status)) return UI.btn('detail', 'Details', 'outline-secondary', 'bi-eye');
+      // Scenario C step 3: incident job muna i-assess (Minor o Major) bago ang ibang gawain.
+      if (toAssess(j)) return UI.btn('detail', 'Details', 'outline-secondary', 'bi-eye') + UI.btn('assess', 'Assess damage', 'danger', 'bi-clipboard-pulse');
+      const doneLabel = j.incident_id && j.severity === 'Minor' ? 'Confirm repair (cleared to continue)' : j.incident_id ? 'Complete repair (truck Available)' : 'Complete';
       return UI.btn('detail', 'Details', 'outline-secondary', 'bi-eye') + UI.btn('update', 'Update', 'outline-primary') + UI.btn('parts', 'Parts', 'outline-primary') + UI.btn('use', 'Parts used', 'outline-primary') +
-        UI.btn('cost', 'Cost', 'outline-primary') + UI.btn('done', 'Complete', 'success', 'bi-check2');
+        UI.btn('cost', 'Cost', 'outline-primary') + UI.btn('done', doneLabel, 'success', 'bi-check2');
     };
     const onJob = (act, j) => {
       if (act === 'detail') {
         const used = (d.partsUsed || []).filter(x => +x.maintenance_job_id === +j.id), costs = (d.costs || []).filter(x => +x.maintenance_job_id === +j.id);
-        return UI.modal('Job ' + UI.esc(j.job_number), `<table class="table table-sm">${[['Truck', j.plate_number], ['Type', j.maintenance_type], ['Source', j.source], ['Trip', j.trip_ref], ['Status', j.status], ['Mechanic / provider', j.assigned_to], ['Expected completion', UI.date(j.expected_completion)], ['Started', UI.datetime(j.started_at)], ['Completed', UI.datetime(j.completed_at)], ['Created by', j.created_by_name]].map(([k, v]) => `<tr><th class="small text-muted">${k}</th><td>${UI.esc(v ?? '—')}</td></tr>`).join('')}</table>
+        return UI.modal('Job ' + UI.esc(j.job_number), `<table class="table table-sm">${[['Truck', j.plate_number], ['Type', j.maintenance_type], ['Source', j.source], ['Trip', j.trip_ref], ['Trip status', j.trip_status], ['Incident', j.incident_id ? [j.incident_problem, j.incident_location, UI.datetime(j.incident_at), j.severity || 'for assessment', j.incident_status].filter(Boolean).join(' · ') : null], ['Status', j.status], ['Mechanic / provider', j.assigned_to], ['Expected completion', UI.date(j.expected_completion)], ['Started', UI.datetime(j.started_at)], ['Completed', UI.datetime(j.completed_at)], ['Created by', j.created_by_name]].map(([k, v]) => `<tr><th class="small text-muted">${k}</th><td>${UI.esc(v ?? '—')}</td></tr>`).join('')}</table>
           <p style="white-space:pre-wrap">${UI.esc(j.description)}</p>
           <h6>Parts used</h6>${UI.table([['Part', 'part_number'], ['Description', 'description'], ['Qty', 'quantity'], ['Unit cost', 'unit_cost', 'money']], used, { id: 'pu' + j.id })}
           <h6 class="mt-3">Costs</h6>${UI.table([['Type', 'cost_type'], ['Description', 'description'], ['Provider', 'provider'], ['Date', 'incurred_on', 'date'], ['Amount', 'amount', 'money']], costs, { id: 'co' + j.id })}
@@ -59,6 +64,11 @@ App.page('maintenance', {
         { name: 'assigned_to', label: 'Mechanic / provider', value: j.assigned_to, col: 4 },
         { name: 'expected_completion', label: 'Expected completion', type: 'date', value: j.expected_completion, col: 4 }], 'Maintenance.job_update', { size: '' });
       if (act === 'parts') return partReq(j);
+      if (act === 'assess') return UI.formModal('Assess truck damage — ' + UI.esc(j.plate_number) + ' (' + UI.esc(j.trip_ref || '') + ')', [{ name: 'job_id', type: 'hidden', value: j.id },
+        { name: 'severity', label: 'Assessment', type: 'select', required: true, col: 12, options: [['Minor', 'Minor Damage: send a mechanic, repair on site, trip continues'], ['Major', 'Major Damage: return the truck for repair, trip For Reschedule']] },
+        { name: 'assigned_to', label: 'Mechanic / service provider', col: 6 }, { name: 'expected_completion', label: 'Expected completion', type: 'date', col: 6 },
+        { name: 'notes', label: 'Assessment notes', col: 12 }], 'Maintenance.assess',
+        { intro: `Reported: <b>${UI.esc(j.incident_problem || '')}</b> at ${UI.esc(j.incident_location || '')} (${UI.datetime(j.incident_at)}). Major damage makes the truck Under Maintenance and it cannot be assigned to other trips until repaired.` });
       if (act === 'use') {
         const reqs = (d.partRequests || []).filter(r => r.status === 'Issued' && +r.vehicle_id === +j.vehicle_id && +r.used_qty < +r.requested_qty);
         return UI.formModal('Record parts used on ' + UI.esc(j.job_number), [{ name: 'job_id', type: 'hidden', value: j.id },
@@ -69,10 +79,13 @@ App.page('maintenance', {
         { name: 'cost_type', label: 'Type', type: 'select', required: true, options: UI.list(['Labor', 'Outside Service', 'Materials', 'Other']), col: 4 },
         { name: 'amount', label: 'Amount (PHP)', type: 'money', required: true, col: 4 }, { name: 'incurred_on', label: 'Date', type: 'date', required: true, value: UI.today(), col: 4 },
         { name: 'description', label: 'Description', required: true, col: 8 }, { name: 'provider', label: 'Supplier / service provider', col: 4 }], 'Maintenance.cost_add', { intro: 'Saved as a Maintenance expense for Finance. Attach the receipt in Documents.' });
-      if (act === 'done') return UI.confirmAction('Complete job', `Complete ${UI.esc(j.job_number)} on ${UI.esc(j.plate_number)}? The truck returns to Available when nothing else is open.`, 'Maintenance.job_complete', { job_id: j.id }, { fields: [{ name: 'notes', label: 'Work done (optional)', col: 12 }] });
+      if (act === 'done') return UI.confirmAction(j.incident_id && j.severity === 'Minor' ? 'Confirm repair' : 'Complete job',
+        j.incident_id && j.severity === 'Minor' ? `Is ${UI.esc(j.plate_number)} safe and operational? The incident becomes "Repaired - Cleared to Continue" and the dispatcher is notified to resume ${UI.esc(j.trip_ref || 'the trip')}.`
+          : `Complete ${UI.esc(j.job_number)} on ${UI.esc(j.plate_number)}? The truck returns to Available when nothing else is open${j.incident_id ? ' and the dispatcher is notified to reschedule the trip' : ''}.`,
+        'Maintenance.job_complete', { job_id: j.id }, { fields: [{ name: 'notes', label: 'Work done (optional)', col: 12 }] });
     };
     UI.tabs(ctx.el, [
-      ['jobs', 'Repair and maintenance jobs', () => UI.table([['Job', 'job_number'], ['Truck', 'plate_number'], ['Type', 'maintenance_type'], ['Source', 'source'], ['Severity', 'severity', 'badge'], ['Trip', 'trip_ref'],
+      ['jobs', 'Repair and maintenance jobs', () => UI.table([['Job', 'job_number'], ['Truck', 'plate_number'], ['Type', 'maintenance_type'], ['Source', 'source'], ['Severity', 'severity', (v, r) => v ? UI.badge(v) : (r.incident_id ? '<span class="badge-s red">For assessment</span>' : '—')], ['Trip', 'trip_ref'],
         ['Issue', 'description'], ['Mechanic', 'assigned_to'], ['Status', 'status', 'badge'], ['Expected available', 'expected_completion', 'date'], ['Cost', 'parts_cost', (x, r) => UI.money(jobCost(r))], ['Created', 'created_at', 'datetime']],
         jobs, { id: 'jobs', actions: jobActions, onAction: onJob })],
       ['avail', 'Expected availability', () => UI.table([['Truck', 'plate_number'], ['Type', 'truck_type'], ['Status', 'status', 'badge'], ['Expected available', 'expected_available', 'date'], ['Odometer', 'odometer_km', 'num'], ['Km since PM', 'km_since_pm', (x) => `${UI.num(x)} / ${UI.num(d.pmInterval)}`]], d.vehicles, { id: 'vav' })],

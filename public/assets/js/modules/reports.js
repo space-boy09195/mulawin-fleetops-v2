@@ -14,7 +14,7 @@ App.page('reports', {
       { name: 'from', label: 'From', type: 'date', col: 2, value: q.from }, { name: 'to', label: 'To', type: 'date', col: 2, value: q.to },
       { name: 'group', label: 'Group by', type: 'select', col: 2, options: [['day', 'Daily'], ['week', 'Weekly'], ['month', 'Monthly']], value: q.group, placeholder: false },
       { name: 'truck_type', label: 'Truck type', type: 'select', col: 2, options: UI.list(App.me.truckTypes), value: q.truck_type, placeholder: 'All' },
-      { name: 'status', label: 'Trip status', type: 'select', col: 2, options: UI.list(['Completed', 'In Progress', 'Cancelled', 'Rescheduled', 'Assigned', 'Pending Approval']), value: q.status, placeholder: 'All' },
+      { name: 'status', label: 'Trip status', type: 'select', col: 2, options: UI.list(['Completed', 'Dispatched', 'In Transit', 'On Hold - Incident Reported', 'For Reschedule', 'Ready for Dispatch', 'Pre-Assigned', 'Pending Review', 'Cancelled']), value: q.status, placeholder: 'All' },
       { name: 'client_id', label: 'Client', type: 'select', col: 3, options: opts(f.clients, 'name'), value: q.client_id, placeholder: 'All' },
       { name: 'vehicle_id', label: 'Truck', type: 'select', col: 3, options: opts(f.vehicles, 'plate_number'), value: q.vehicle_id, placeholder: 'All' },
       { name: 'driver_id', label: 'Driver / helper', type: 'select', col: 3, options: opts(f.crew, 'full_name'), value: q.driver_id, placeholder: 'All' },

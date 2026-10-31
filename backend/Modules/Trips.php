@@ -3,28 +3,36 @@
  * =====================================================================
  *  backend/Modules/Trips.php  —  OPERATIONS MODULE (trip and dispatch)
  * =====================================================================
- *  Source: FMS PDF II.D, II.E, II.F, II.G and pp.16-18 (Operation module).
+ *  Source: FMS PDF II.D, II.E, II.F, II.G at ang BAGONG flow sa
+ *  "R-P-Mulawin-Trucking Trucking Management System" PDF (version 2):
+ *  Scenario A, B at C.
  *
  *  SCENARIO A (client -> Operations Head)
- *    Ops Head encodes delivery info + truck type + dispatcher type
- *    -> system auto-assigns truck, driver, helper
- *    -> system computes the allowance and sends the fund request
+ *    Ops Head gumagawa ng trip (delivery details, truck type, dispatcher type)
+ *    -> system auto-assigns truck, driver, helper -> "Pre-Assigned"
  *
  *  SCENARIO B (client -> Dispatcher)
- *    Dispatcher encodes the request -> Ops Head sets truck type,
- *    dispatcher type and other details (approval) -> same as above.
+ *    Dispatcher gumagawa ng delivery request -> "Pending Review"
+ *    -> Ops Head nire-review at kinukumpleto ang trip details (confirm)
+ *    -> system auto-assigns -> "Pre-Assigned"
  *
- *  THEN
- *    Dispatcher pre-departure checklist (57 items) -> "Ready for Dispatch"
- *    -> fund becomes "Ready for Release" -> Finance releases
- *    -> Ops Head departure clearance -> Dispatcher confirms dispatch
- *    -> progress / delay / incident updates -> arrival checklist
- *    -> dispatcher submits completed trip.
+ *  PAREHO SA A AT B (sabay pwedeng gawin ang fund at checklist)
+ *    Dispatcher Fund Request (preset categories) -> Ops Head approve
+ *    -> fund "Ready for Release" -> Finance Confirm Release -> "Released"
+ *    Dispatcher Pre-Dispatch Checklist -> trip "Ready for Dispatch"
+ *    System: Confirm Dispatch ay enabled lang kapag fund Released AT
+ *    trip Ready for Dispatch -> Dispatcher Confirm Dispatch -> "Dispatched"
+ *    -> updates / delay -> arrival checklist -> "Returned"
+ *    -> dispatcher submits completed trip -> "Completed"
  *
- *  INCIDENT
- *    Minor: roadside repair job for Motorpool, trip continues.
- *    Major: trip "Rescheduled", truck "Under Maintenance". After Motorpool
- *    completes the repair, dispatcher re-dispatches as 2nd attempt.
+ *  SCENARIO C (truck breakdown)
+ *    Dispatcher Incident Report -> trip "On Hold - Incident Reported"
+ *    -> Maintenance assesses (Maintenance module):
+ *       Minor: mechanic, "Repaired - Cleared to Continue" -> Dispatcher
+ *              Resume Trip -> "In Transit" (hindi Second Attempt)
+ *       Major: truck "Under Maintenance", trip "For Reschedule" -> repair
+ *              -> truck Available -> Dispatcher Reschedule Trip (bagong
+ *              schedule, checklist ulit) -> Confirm Redispatch = Second Attempt
  * =====================================================================
  */
 declare(strict_types=1);
@@ -34,8 +42,16 @@ core('Notify');
 core('TripFunds');
 
 final class Trips {
-    public const STATUSES = ['Pending Approval', 'Awaiting Resources', 'Assigned', 'Ready for Dispatch', 'In Progress',
-                             'Returned', 'Completed', 'Rescheduled', 'Cancelled', 'Rejected'];
+    /**
+     * Trip status names ayon sa bagong PDF. "Awaiting Resources" ay galing sa
+     * dating system: ginagamit kapag walang bakanteng truck o crew sa auto-assign.
+     */
+    public const STATUSES = ['Pending Review', 'Awaiting Resources', 'Pre-Assigned', 'Ready for Dispatch', 'Dispatched',
+                             'On Hold - Incident Reported', 'In Transit', 'Returned', 'Completed', 'For Reschedule', 'Cancelled', 'Rejected'];
+    /** Trips na nasa biyahe na (pwedeng mag-update, mag-waybill). */
+    public const ON_ROAD = ['Dispatched', 'On Hold - Incident Reported', 'In Transit'];
+    /** Trips na hindi pa umaalis at pwedeng lagyan ng fund request. */
+    public const BEFORE_DISPATCH = ['Pre-Assigned', 'Ready for Dispatch', 'For Reschedule'];
     public const UPDATE_TYPES = ['Progress', 'Loading', 'Unloading', 'Delivery', 'Delay', 'Other'];
     public const DELAY_CAUSES = ['Client', 'Pending Documents', 'Operational', 'Traffic', 'Weather', 'Other'];
 
@@ -67,9 +83,11 @@ final class Trips {
             $data['unitsPerTrip'] = Settings::value('units_per_trip');
             $data['updateTypes'] = self::UPDATE_TYPES;
             $data['delayCauses'] = self::DELAY_CAUSES;
+            // Preset fund categories na pinipili ng dispatcher sa Fund Request.
+            $data['fundCategories'] = TripFunds::categories();
             $data['can'] = [
                 'create' => hasRole($u, 'operations_head') || roleIsDispatcher($u['role']),
-                'review' => hasRole($u, 'operations_head'), 'clear' => hasRole($u, 'operations_head'),
+                'review' => hasRole($u, 'operations_head'),
                 'dispatch' => roleIsDispatcher($u['role']), 'cancel' => hasRole($u, 'operations_head'),
                 'reassign' => hasRole($u, 'operations_head'),
             ];
@@ -122,7 +140,7 @@ final class Trips {
     private static function tripSelect(): string {
         return "SELECT t.*, c.name AS client, c.company_name, v.plate_number, v.truck_number, v.status AS vehicle_status,
                 d1.full_name AS driver_name, d2.full_name AS driver2_name, hp.full_name AS helper_name,
-                ds.full_name AS dispatcher_name, cr.full_name AS created_by_name, oc.full_name AS cleared_by_name,
+                ds.full_name AS dispatcher_name, cr.full_name AS created_by_name,
                 (SELECT f.status FROM fund_requests f WHERE f.trip_id=t.id AND f.status NOT IN ('Rejected','Cancelled') ORDER BY f.id DESC LIMIT 1) AS fund_status,
                 (SELECT f.amount FROM fund_requests f WHERE f.trip_id=t.id AND f.status NOT IN ('Rejected','Cancelled') ORDER BY f.id DESC LIMIT 1) AS fund_amount,
                 (SELECT f.id FROM fund_requests f WHERE f.trip_id=t.id ORDER BY f.id DESC LIMIT 1) AS fund_id,
@@ -131,6 +149,8 @@ final class Trips {
                 (SELECT GROUP_CONCAT(w.waybill_number SEPARATOR ', ') FROM waybills w WHERE w.trip_id=t.id) AS waybill_numbers,
                 (SELECT COUNT(*) FROM trip_updates up WHERE up.trip_id=t.id AND up.update_type='Delay') AS delay_count,
                 (SELECT COUNT(*) FROM incidents i WHERE i.trip_id=t.id) AS incident_count,
+                (SELECT i.status FROM incidents i WHERE i.trip_id=t.id ORDER BY i.id DESC LIMIT 1) AS incident_status,
+                (SELECT i.severity FROM incidents i WHERE i.trip_id=t.id ORDER BY i.id DESC LIMIT 1) AS incident_severity,
                 (SELECT b.invoice_number FROM billing_items bi JOIN billings b ON b.id=bi.billing_id WHERE bi.trip_id=t.id LIMIT 1) AS invoice_number
             FROM trips t
             JOIN clients c ON c.id=t.client_id
@@ -139,8 +159,7 @@ final class Trips {
             LEFT JOIN personnel d2 ON d2.id=t.driver2_id
             LEFT JOIN personnel hp ON hp.id=t.helper_id
             LEFT JOIN users ds ON ds.id=t.dispatcher_id
-            LEFT JOIN users cr ON cr.id=t.created_by
-            LEFT JOIN users oc ON oc.id=t.ops_cleared_by";
+            LEFT JOIN users cr ON cr.id=t.created_by";
     }
 
     /** Search filters (PDF II.F and V.59: trip number, date, client, truck, driver, dispatcher). */
@@ -177,13 +196,13 @@ final class Trips {
             'details' => self::details($u, $d),
             'checklist_start' => self::checklistStart($u, $d),
             'checklist_departure' => self::checklistDeparture($u, $d),
-            'clear' => self::clear($u, $d),
             'dispatch' => self::dispatch($u, $d),
             'progress' => self::progress($u, $d),
             'incident' => self::incident($u, $d),
             'arrival' => self::arrival($u, $d),
             'complete' => self::complete($u, $d),
-            'second_attempt' => self::secondAttempt($u, $d),
+            'resume' => self::resume($u, $d),
+            'reschedule' => self::reschedule($u, $d),
             'cancel' => self::cancel($u, $d),
             'waybill_add' => self::waybillAdd($u, $d),
             default => throw new BusinessRuleException('Unknown trip action.', 404),
@@ -210,9 +229,12 @@ final class Trips {
         run($p, 'UPDATE trips SET status=? WHERE id=?', [$to, $t['id']]);
         self::event($p, $uid, (int)$t['id'], $type, $t['status'], $to, $notes);
     }
-    /** Active fund request of the trip (not rejected / cancelled). */
-    private static function activeFund(PDO $p, int $tripId): ?array {
-        return one($p, "SELECT * FROM fund_requests WHERE trip_id=? AND status NOT IN ('Rejected','Cancelled') ORDER BY id DESC LIMIT 1 FOR UPDATE", [$tripId]);
+    /**
+     * Bukas na fund request ng trip: Pending Approval, Ready for Release o Released.
+     * (Ang Rejected ay ibinabalik sa dispatcher; ang Completed ay nagamit na sa dispatch.)
+     */
+    private static function openFund(PDO $p, int $tripId): ?array {
+        return one($p, "SELECT * FROM fund_requests WHERE trip_id=? AND status IN ('Pending Approval','Ready for Release','Released') ORDER BY id DESC LIMIT 1 FOR UPDATE", [$tripId]);
     }
 
     /** Client rate for this trip (Billing: client-specific and route-based rates). */
@@ -272,32 +294,34 @@ final class Trips {
             $row['intake_source'] = $isOps ? 'Scenario A: Client to Operations Head' : 'Scenario B: Client to Dispatcher';
             $row['dispatcher_role'] = $isOps ? dispatcherRoleFor($row['truck_type']) : $u['role'];
             $row['dispatcher_id'] = $isOps ? null : $u['id'];
-            $row['status'] = 'Pending Approval';
+            $row['status'] = 'Pending Review';
             $id = insert($p, 'trips', $row);
             $ref = refNumber('TRP', $id);
             run($p, 'UPDATE trips SET trip_ref=? WHERE id=?', [$ref, $id]);
-            self::event($p, $u['id'], $id, 'trip request encoded', '', 'Pending Approval', $row['intake_source']);
+            self::event($p, $u['id'], $id, $isOps ? 'trip created by Operations Head' : 'delivery request created by dispatcher', '', 'Pending Review', $row['intake_source']);
             if ($isOps) {
-                // Scenario A: Ops Head already decided -> approve and auto-assign right away.
+                // Scenario A step 2: Ops Head ang gumawa, kaya auto-assign agad.
                 $t = self::lockTrip($p, $id);
                 run($p, 'UPDATE trips SET approved_by=?, approved_at=NOW() WHERE id=?', [$u['id'], $id]);
                 $t['approved_by'] = $u['id'];
                 $result = self::approveAndAssign($p, $u, $t);
                 return ['trip_id' => $id, 'trip_ref' => $ref] + $result;
             }
-            Notify::roles($p, ['operations_head'], 'Trip request', "New trip request $ref from dispatcher " . $u['full_name'] . ' needs your review.', 'trips');
-            return ['trip_id' => $id, 'trip_ref' => $ref, 'message' => 'Trip request sent to the Operations Head.'];
+            // Scenario B step 2: lalabas sa Operations Head bilang "Pending Review".
+            Notify::roles($p, ['operations_head'], 'Delivery request', "New delivery request $ref from dispatcher " . $u['full_name'] . ' is Pending Review.', 'trips');
+            return ['trip_id' => $id, 'trip_ref' => $ref, 'message' => 'Delivery request sent to the Operations Head (Pending Review).'];
         });
     }
 
-    // ---------- Ops Head review (Scenario B) ----------
+    // ---------- Ops Head review and complete trip details (Scenario B step 3) ----------
     private static function review(array $u, array $d): array {
         requireRole($u, 'operations_head');
         $id = idField($d, 'trip_id');
         $decision = choiceField($d, 'decision', ['approve', 'reject']);
         return transaction(function (PDO $p) use ($u, $d, $id, $decision) {
             $t = self::lockTrip($p, $id);
-            must($t['status'] === 'Pending Approval', 'This trip is not waiting for approval.', 409);
+            must($t['status'] === 'Pending Review', 'This request is not Pending Review.', 409);
+            // Reject: galing sa dating system (hindi nakasulat sa bagong PDF) para sa maling request.
             if ($decision === 'reject') {
                 $reason = field($d, 'reason', 300);
                 run($p, 'UPDATE trips SET cancel_reason=? WHERE id=?', [$reason, $id]);
@@ -318,20 +342,26 @@ final class Trips {
         });
     }
 
-    /** After approval: auto-assign resources and create the fund request. */
+    /**
+     * Pagkatapos i-confirm ng Ops Head: auto-assign ng truck, driver at helper.
+     * Bagong PDF: WALA nang automatic fund. Ang dispatcher ang gagawa ng Fund Request.
+     */
     private static function approveAndAssign(PDO $p, array $u, array $t): array {
         $rate = self::clientRate($p, $t);
         if ($rate !== null) run($p, 'UPDATE trips SET client_rate=? WHERE id=?', [$rate, $t['id']]);
         $res = self::autoAssign($p, $t);
         if (!$res['ok']) {
-            self::setStatus($p, $u['id'], $t, 'Awaiting Resources', 'trip approved; waiting for resources', $res['reason']);
-            Notify::roles($p, ['operations_head', $t['dispatcher_role']], 'Trip', $t['trip_ref'] . ' approved but ' . $res['reason'] . ' Use "Try auto-assign again" or assign manually.', 'trips');
-            return ['message' => 'Trip approved. ' . $res['reason'] . ' It is marked "Awaiting Resources".'];
+            self::setStatus($p, $u['id'], $t, 'Awaiting Resources', 'trip confirmed; waiting for resources', $res['reason']);
+            Notify::roles($p, ['operations_head', $t['dispatcher_role']], 'Trip', $t['trip_ref'] . ' confirmed but ' . $res['reason'] . ' Use "Try auto-assign again" or assign manually.', 'trips');
+            return ['message' => 'Trip confirmed. ' . $res['reason'] . ' It is marked "Awaiting Resources".'];
         }
         self::applyAssignment($p, $u['id'], $t, $res, 'Auto');
-        $fund = TripFunds::create($p, self::lockTrip($p, (int)$t['id']));
-        Notify::roles($p, [$t['dispatcher_role']], 'Trip assigned', $t['trip_ref'] . ' is pre-assigned to truck ' . $res['plate'] . '. Prepare the pre-departure checklist.', 'trips');
-        return ['message' => 'Trip approved and auto-assigned to ' . $res['plate'] . '. Fund request of PHP ' . number_format($fund['amount'], 2) . ' sent for approval.'];
+        self::notifyPreAssigned($p, $t, $res['plate']);
+        return ['message' => 'Trip confirmed and pre-assigned to ' . $res['plate'] . '. The dispatcher will submit the fund request and do the pre-dispatch checklist.'];
+    }
+
+    private static function notifyPreAssigned(PDO $p, array $t, string $plate): void {
+        Notify::roles($p, [$t['dispatcher_role']], 'Pre-assigned trip', $t['trip_ref'] . ' is pre-assigned to truck ' . $plate . '. Submit the fund request and do the pre-dispatch checklist.', 'trips');
     }
 
     /**
@@ -353,7 +383,7 @@ final class Trips {
         $look = (int)Settings::value('auto_assign_lookback_days');
         $pmLimit = Settings::value('pm_interval_km');
         $km = (float)($t['distance_km'] ?? 0);
-        $holding = "'Assigned','Ready for Dispatch','In Progress','Returned'";
+        $holding = "'" . implode("','", FleetState::HOLDING_TRIP_STATUSES) . "'";
         $vehStatuses = $sameDay ? "('Available')" : "('Available','Assigned','On Trip')";
         $sql = "SELECT v.* , (SELECT COUNT(*) FROM trips x WHERE x.vehicle_id=v.id AND x.status NOT IN ('Cancelled','Rejected') AND x.scheduled_at>=DATE_SUB(NOW(), INTERVAL ? DAY)) AS recent
                 FROM vehicles v WHERE v.active=1 AND v.truck_type=? AND v.status IN $vehStatuses
@@ -401,11 +431,11 @@ final class Trips {
         // Lock rows in a fixed order to avoid two dispatchers taking the same truck.
         one($p, 'SELECT id FROM vehicles WHERE id=? FOR UPDATE', [$res['vehicle_id']]);
         run($p, 'UPDATE trips SET vehicle_id=?, driver_id=?, driver2_id=?, helper_id=?, assignment_mode=?, status=? WHERE id=?',
-            [$res['vehicle_id'], $res['driver_id'], $res['driver2_id'], $res['helper_id'], $mode, 'Assigned', $t['id']]);
+            [$res['vehicle_id'], $res['driver_id'], $res['driver2_id'], $res['helper_id'], $mode, 'Pre-Assigned', $t['id']]);
         $v = one($p, 'SELECT status FROM vehicles WHERE id=?', [$res['vehicle_id']]);
         if ($v['status'] === 'Available') FleetState::setStatus($p, $res['vehicle_id'], 'Assigned', $uid, 'Assigned to ' . $t['trip_ref']);
         self::event($p, $uid, (int)$t['id'], $mode === 'Auto' ? 'system auto-assigned resources' : 'resources assigned manually',
-            $t['status'], 'Assigned', 'Truck ' . $res['plate'] . '; driver #' . $res['driver_id'] . ($res['driver2_id'] ? '; driver 2 #' . $res['driver2_id'] : '') . ($res['helper_id'] ? '; helper #' . $res['helper_id'] : ''));
+            $t['status'], 'Pre-Assigned', 'Truck ' . $res['plate'] . '; driver #' . $res['driver_id'] . ($res['driver2_id'] ? '; driver 2 #' . $res['driver2_id'] : '') . ($res['helper_id'] ? '; helper #' . $res['helper_id'] : ''));
     }
 
     private static function retryAssign(array $u, array $d): array {
@@ -418,10 +448,8 @@ final class Trips {
             $res = self::autoAssign($p, $t);
             must($res['ok'], $res['reason'] ?? 'No resources.', 409);
             self::applyAssignment($p, $u['id'], $t, $res, 'Auto');
-            $msg = 'Auto-assigned to ' . $res['plate'] . '.';
-            if (!self::activeFund($p, $id)) { $f = TripFunds::create($p, self::lockTrip($p, $id)); $msg .= ' Fund request PHP ' . number_format($f['amount'], 2) . ' sent.'; }
-            Notify::roles($p, [$t['dispatcher_role']], 'Trip assigned', $t['trip_ref'] . ' is pre-assigned to truck ' . $res['plate'] . '.', 'trips');
-            return ['trip_id' => $id, 'message' => $msg];
+            self::notifyPreAssigned($p, $t, $res['plate']);
+            return ['trip_id' => $id, 'message' => 'Auto-assigned to ' . $res['plate'] . '. Trip is Pre-Assigned.'];
         });
     }
 
@@ -433,14 +461,15 @@ final class Trips {
         $reason = field($d, 'reason', 255);
         return transaction(function (PDO $p) use ($u, $id, $vid, $driver, $driver2, $helper, $reason) {
             $t = self::lockTrip($p, $id);
-            must(in_array($t['status'], ['Awaiting Resources', 'Assigned', 'Rescheduled'], true), 'Resources can only be changed before the checklist is done.', 409);
+            must(in_array($t['status'], ['Awaiting Resources', 'Pre-Assigned', 'For Reschedule'], true), 'Resources can only be changed before the checklist is done.', 409);
             $ids = array_filter([$driver, $driver2, $helper]);
             must(count($ids) === count(array_unique($ids)), 'The same person was chosen twice.');
             $v = one($p, 'SELECT * FROM vehicles WHERE id=? AND active=1 FOR UPDATE', [$vid]);
             must($v && $v['truck_type'] === $t['truck_type'], 'Choose an active ' . $t['truck_type'] . ' truck.');
             must(!in_array($v['status'], ['Under Maintenance', 'Unavailable'], true), 'Truck is ' . $v['status'] . '.', 409);
             $date = substr($t['scheduled_at'], 0, 10);
-            $clash = one($p, "SELECT trip_ref FROM trips WHERE id<>? AND status IN ('Assigned','Ready for Dispatch','In Progress','Returned') AND DATE(scheduled_at)=? AND (vehicle_id=? OR driver_id IN (?,?,?) OR driver2_id IN (?,?,?) OR helper_id IN (?,?,?)) LIMIT 1",
+            $holding = "'" . implode("','", FleetState::HOLDING_TRIP_STATUSES) . "'";
+            $clash = one($p, "SELECT trip_ref FROM trips WHERE id<>? AND status IN ($holding) AND DATE(scheduled_at)=? AND (vehicle_id=? OR driver_id IN (?,?,?) OR driver2_id IN (?,?,?) OR helper_id IN (?,?,?)) LIMIT 1",
                 [$id, $date, $vid, $driver, $driver2 ?? 0, $helper ?? 0, $driver, $driver2 ?? 0, $helper ?? 0, $driver, $driver2 ?? 0, $helper ?? 0]);
             must(!$clash, 'Double booking: truck or crew is already on ' . ($clash['trip_ref'] ?? '') . ' that day (PDF II.B).', 409);
             foreach ([[$driver, 'Driver'], [$driver2, 'Driver'], [$helper, 'Helper']] as [$pid, $type]) {
@@ -453,10 +482,10 @@ final class Trips {
             if ($t['truck_type'] !== 'Car Carrier') must((bool)$helper, 'A helper is required for ' . $t['truck_type'] . ' trips.');
             $oldVehicle = $t['vehicle_id'] ? (int)$t['vehicle_id'] : null;
             self::applyAssignment($p, $u['id'], $t, ['vehicle_id' => $vid, 'plate' => $v['plate_number'], 'driver_id' => $driver, 'driver2_id' => $driver2, 'helper_id' => $helper], 'Manual');
-            if ($t['status'] === 'Rescheduled') run($p, "UPDATE trips SET status='Rescheduled' WHERE id=?", [$id]); // keep waiting for 2nd attempt
+            if ($t['status'] === 'For Reschedule') run($p, "UPDATE trips SET status='For Reschedule' WHERE id=?", [$id]); // hinihintay pa ang Reschedule Trip
             if ($oldVehicle && $oldVehicle !== $vid) FleetState::reconcile($p, $oldVehicle, $u['id'], 'Released from ' . $t['trip_ref']);
             self::event($p, $u['id'], $id, 'assignment override reason', $t['status'], $t['status'], $reason);
-            if ($t['status'] === 'Awaiting Resources' && !self::activeFund($p, $id)) TripFunds::create($p, self::lockTrip($p, $id));
+            if ($t['status'] === 'Awaiting Resources') self::notifyPreAssigned($p, $t, $v['plate_number']);
             return ['trip_id' => $id, 'message' => 'Assignment updated.'];
         });
     }
@@ -497,8 +526,9 @@ final class Trips {
         return transaction(function (PDO $p) use ($u, $id, $type) {
             $t = self::lockTrip($p, $id);
             self::mustBeTripDispatcher($u, $t);
-            must($type === 'Departure' ? $t['status'] === 'Assigned' : $t['status'] === 'In Progress',
-                $type === 'Departure' ? 'Departure checklist is for an assigned trip.' : 'Arrival checklist is for a trip in progress.', 409);
+            must($type === 'Departure' ? $t['status'] === 'Pre-Assigned' : in_array($t['status'], ['Dispatched', 'In Transit'], true),
+                $type === 'Departure' ? 'The pre-dispatch checklist is for a Pre-Assigned trip.' : 'The arrival checklist is for a dispatched trip (not on hold).', 409);
+            if ($type === 'Departure') self::mustHaveClientSteps($t);
             $existing = one($p, 'SELECT * FROM inspections WHERE trip_id=? AND attempt_number=? AND inspection_type=? FOR UPDATE', [$id, $t['attempt_number'], $type]);
             if ($existing && $existing['status'] === 'In Progress') return ['started_at' => $existing['started_at'], 'message' => 'Checklist already started at ' . $existing['started_at'] . '.'];
             if ($existing) {
@@ -529,84 +559,90 @@ final class Trips {
         return ['id' => (int)$ins['id'], 'km' => $km, 'has_not_ok' => $check['has_not_ok']];
     }
 
-    /** Pre-departure checklist. All OK -> Ready for Dispatch and fund Ready for Release (PDF p.16). */
+    /**
+     * Container at Wing Van client steps (dating PDF II.E). Sa bagong PDF, dalawa
+     * lang ang chine-check sa dispatch (fund Released + Ready for Dispatch), kaya
+     * dito na sa checklist hinihingi ang client steps bago maging Ready for Dispatch.
+     */
+    private static function mustHaveClientSteps(array $t): void {
+        if ($t['truck_type'] === 'Container') {
+            must((bool)$t['client_confirmed_at'], 'Confirm the client nomination / booking first (Booking / client steps).', 409);
+            must((bool)$t['pre_advice_sent_at'], 'Mark the pre-advice as sent to the client first (Booking / client steps).', 409);
+        }
+        if ($t['truck_type'] === 'Wing Van') {
+            must((bool)$t['client_confirmed_at'], 'Confirm the trip with the client first (Booking / client steps).', 409);
+            must((bool)$t['client_advised_at'], 'Give the client the truck details and plate number first (Booking / client steps).', 409);
+        }
+    }
+
+    /**
+     * Pre-Dispatch Checklist (bagong PDF Scenario A step 6 / B step 7).
+     * Lahat OK -> trip "Ready for Dispatch". Pwede itong gawin habang
+     * pinoproseso ng Finance ang fund release; hindi nito binabago ang fund.
+     */
     private static function checklistDeparture(array $u, array $d): array {
         $id = idField($d, 'trip_id');
         return transaction(function (PDO $p) use ($u, $d, $id) {
             $t = self::lockTrip($p, $id);
             self::mustBeTripDispatcher($u, $t);
-            must($t['status'] === 'Assigned', 'Trip must be assigned.', 409);
+            must($t['status'] === 'Pre-Assigned', 'Trip must be Pre-Assigned.', 409);
+            self::mustHaveClientSteps($t);
             $res = self::saveChecklist($p, $u, $t, 'Departure', $d);
             if ($res['has_not_ok']) {
-                self::event($p, $u['id'], $id, 'departure checklist has NOT OK items', 'Assigned', 'Assigned', 'Fix the items, then do the checklist again.');
+                self::event($p, $u['id'], $id, 'pre-dispatch checklist has NOT OK items', 'Pre-Assigned', 'Pre-Assigned', 'Fix the items, then do the checklist again.');
                 return ['trip_id' => $id, 'warning' => 'Checklist saved with NOT OK items. The trip cannot be Ready for Dispatch until all items are OK. Fix the items and start the checklist again.'];
             }
             run($p, 'UPDATE trips SET pre_odometer=?, dispatcher_id=COALESCE(dispatcher_id, ?) WHERE id=?', [$res['km'], $u['id'], $id]);
-            self::setStatus($p, $u['id'], $t, 'Ready for Dispatch', 'pre-departure checklist completed', 'Odometer out: ' . $res['km']);
-            $fund = self::activeFund($p, $id);
+            self::setStatus($p, $u['id'], $t, 'Ready for Dispatch', 'pre-dispatch checklist completed', 'Odometer out: ' . $res['km']);
+            $fund = self::openFund($p, $id);
             $msg = 'Trip is Ready for Dispatch.';
-            if ($fund && $fund['status'] === 'Pending Release') {
-                run($p, "UPDATE fund_requests SET status='Ready for Release' WHERE id=?", [$fund['id']]);
-                audit($p, null, 'Finance', 'fund ' . $fund['id'], 'fund ready for release', $t['trip_ref'] . ' checklist done');
-                Notify::roles($p, ['finance'], 'Fund release', 'Fund for ' . $t['trip_ref'] . ' is Ready for Release.', 'funds');
-                $msg .= ' Fund is now Ready for Release.';
-            } elseif ($fund && in_array($fund['status'], ['Pending Approval', 'Approved'], true)) {
-                $msg .= ' Fund is still ' . $fund['status'] . '; it becomes Ready for Release once Finance processes it.';
-            }
-            Notify::roles($p, ['operations_head'], 'Departure clearance', $t['trip_ref'] . ' passed the pre-departure checklist and needs your departure clearance.', 'trips');
+            if ($fund && $fund['status'] === 'Released') $msg .= ' Fund is Released, so Confirm Dispatch is now enabled.';
+            elseif ($fund) $msg .= ' Confirm Dispatch will be enabled once the fund is Released (now: ' . $fund['status'] . ').';
+            elseif ((int)$t['attempt_number'] === 1) $msg .= ' Submit the fund request; Confirm Dispatch needs a Released fund.';
             return ['trip_id' => $id, 'message' => $msg];
         });
     }
 
-    /** Operations Head departure clearance (PDF II.D step 8). */
-    private static function clear(array $u, array $d): array {
-        requireRole($u, 'operations_head');
-        $id = idField($d, 'trip_id');
-        return transaction(function (PDO $p) use ($u, $id) {
-            $t = self::lockTrip($p, $id);
-            must($t['status'] === 'Ready for Dispatch', 'The pre-departure checklist must be completed first.', 409);
-            must(!$t['ops_cleared_at'], 'Already cleared.', 409);
-            run($p, 'UPDATE trips SET ops_cleared_by=?, ops_cleared_at=NOW() WHERE id=?', [$u['id'], $id]);
-            self::event($p, $u['id'], $id, 'departure clearance given', $t['status'], $t['status']);
-            Notify::roles($p, [$t['dispatcher_role']], 'Departure clearance', $t['trip_ref'] . ' has departure clearance from the Operations Head.', 'trips');
-            return ['trip_id' => $id, 'message' => 'Departure clearance recorded.'];
-        });
+    /**
+     * Dispatch validation + Confirm Dispatch (bagong PDF Scenario A steps 7-8, B steps 8-9).
+     * Dalawang kondisyon lang: trip "Ready for Dispatch" AT fund "Released".
+     * Redispatch (Scenario C.2): "kung applicable" ang fund. Kapag may bukas na
+     * fund request, kailangang Released ito; kapag wala, tuloy pa rin.
+     */
+    public static function dispatchBlockers(PDO $p, array $t, ?array $fund): array {
+        $why = [];
+        if ($t['status'] !== 'Ready for Dispatch') $why[] = 'Trip status is ' . $t['status'] . ' (needs Ready for Dispatch).';
+        $redispatch = (int)$t['attempt_number'] > 1;
+        if ($fund && $fund['status'] !== 'Released') $why[] = 'Fund status is ' . $fund['status'] . ' (needs Released).';
+        if (!$fund && !$redispatch) $why[] = 'No released fund yet. Submit the fund request.';
+        return $why;
     }
 
-    /** Dispatcher confirms dispatch once fund is released (PDF p.16 "icconfirm dispatch na ni dispatcher"). */
     private static function dispatch(array $u, array $d): array {
         $id = idField($d, 'trip_id');
         return transaction(function (PDO $p) use ($u, $id) {
             $t = self::lockTrip($p, $id);
             self::mustBeTripDispatcher($u, $t);
-            must($t['status'] === 'Ready for Dispatch', 'Trip is not Ready for Dispatch.', 409);
-            must((bool)$t['ops_cleared_at'], 'Waiting for the Operations Head departure clearance.', 409);
-            $fund = self::activeFund($p, $id);
-            if ((int)$t['attempt_number'] === 1 || !$fund || $fund['status'] !== 'Completed') {
-                must($fund && $fund['status'] === 'Released', 'Waiting for Finance to release the trip fund.' . ($fund ? ' Current fund status: ' . $fund['status'] . '.' : ''), 409);
-            }
-            // PDF II.E: container needs confirmed booking + pre-advice; wing van needs confirmation + truck details given.
-            if ($t['truck_type'] === 'Container') {
-                must((bool)$t['client_confirmed_at'], 'Confirm the client nomination / booking first (Container step).', 409);
-                must((bool)$t['pre_advice_sent_at'], 'Mark the pre-advice as sent to the client first (Container step).', 409);
-            }
-            if ($t['truck_type'] === 'Wing Van') {
-                must((bool)$t['client_confirmed_at'], 'Confirm the trip with the client first (Wing Van step).', 409);
-                must((bool)$t['client_advised_at'], 'Give the client the truck details and plate number first (Wing Van step).', 409);
-            }
+            $fund = self::openFund($p, $id);
+            $why = self::dispatchBlockers($p, $t, $fund);
+            must(!$why, 'Confirm Dispatch is not yet enabled. ' . implode(' ', $why), 409);
             $v = one($p, 'SELECT status, plate_number FROM vehicles WHERE id=? FOR UPDATE', [$t['vehicle_id']]);
             must($v && $v['status'] !== 'Under Maintenance' && $v['status'] !== 'Unavailable', 'Truck is ' . ($v['status'] ?? 'missing') . '.', 409);
-            must(!one($p, "SELECT id FROM trips WHERE vehicle_id=? AND id<>? AND status IN ('In Progress','Returned')", [$t['vehicle_id'], $id]), 'This truck is still on another trip.', 409);
-            run($p, "UPDATE trips SET status='In Progress', departure_at=NOW(), dispatcher_id=? WHERE id=?", [$u['id'], $id]);
-            self::event($p, $u['id'], $id, 'truck dispatched', $t['status'], 'In Progress', 'Attempt ' . $t['attempt_number']);
+            $onRoad = "'" . implode("','", FleetState::ON_ROAD_TRIP_STATUSES) . "'";
+            must(!one($p, "SELECT id FROM trips WHERE vehicle_id=? AND id<>? AND status IN ($onRoad)", [$t['vehicle_id'], $id]), 'This truck is still on another trip.', 409);
+            $redispatch = (int)$t['attempt_number'] > 1;
+            run($p, "UPDATE trips SET status='Dispatched', departure_at=NOW(), dispatcher_id=? WHERE id=?", [$u['id'], $id]);
+            self::event($p, $u['id'], $id, $redispatch ? 'redispatch confirmed (Second Attempt)' : 'dispatch confirmed', $t['status'], 'Dispatched',
+                $redispatch ? 'Attempt #' . $t['attempt_number'] . ', connected to the original trip and incident report.' : 'Attempt 1');
             FleetState::setStatus($p, (int)$t['vehicle_id'], 'On Trip', $u['id'], 'Dispatched ' . $t['trip_ref']);
             FleetState::setCrew($p, [$t['driver_id'], $t['driver2_id'], $t['helper_id']], 'Available', 'On Trip');
-            if ($fund && $fund['status'] === 'Released') {
+            if ($fund) {
                 run($p, "UPDATE fund_requests SET status='Completed' WHERE id=?", [$fund['id']]);
                 audit($p, $u['id'], 'Finance', 'fund ' . $fund['id'], 'fund completed (truck dispatched)', $t['trip_ref']);
             }
-            Notify::roles($p, ['operations_head', 'finance'], 'Trip dispatched', $t['trip_ref'] . ' departed with truck ' . $v['plate_number'] . '.', 'trips');
-            return ['trip_id' => $id, 'message' => 'Truck dispatched. Fund status is now Completed.'];
+            Notify::roles($p, ['operations_head', 'finance'], $redispatch ? 'Trip redispatched' : 'Trip dispatched',
+                $t['trip_ref'] . ($redispatch ? ' was redispatched (Second Attempt)' : ' was dispatched') . ' with truck ' . $v['plate_number'] . '.', 'trips');
+            return ['trip_id' => $id, 'message' => ($redispatch ? 'Redispatch confirmed (Second Attempt).' : 'Dispatch confirmed.') . ' Trip status is now Dispatched.'];
         });
     }
 
@@ -619,7 +655,7 @@ final class Trips {
         return transaction(function (PDO $p) use ($u, $id, $type, $cause, $note) {
             $t = self::lockTrip($p, $id);
             self::mustBeTripDispatcher($u, $t);
-            must(in_array($t['status'], ['In Progress', 'Ready for Dispatch', 'Assigned'], true), 'Trip is not active.', 409);
+            must(in_array($t['status'], array_merge(['Pre-Assigned', 'Ready for Dispatch'], self::ON_ROAD), true), 'Trip is not active.', 409);
             insert($p, 'trip_updates', ['trip_id' => $id, 'actor_id' => $u['id'], 'update_type' => $type, 'delay_cause' => $cause, 'note' => $note]);
             self::event($p, $u['id'], $id, 'trip update: ' . strtolower($type), $t['status'], $t['status'], ($cause ? "[$cause] " : '') . $note);
             if ($type === 'Delay') Notify::roles($p, ['operations_head'], 'Trip delay', $t['trip_ref'] . " delay ($cause): $note", 'trips');
@@ -628,40 +664,34 @@ final class Trips {
     }
 
     /**
-     * INCIDENT REPORT (PDF pp.16-18). Driver calls dispatcher; dispatcher
-     * encodes. A maintenance job appears for Motorpool right away.
+     * INCIDENT REPORT (bagong PDF Scenario C steps 1-2).
+     * Driver tumatawag sa dispatcher; dispatcher ang nag-e-encode.
+     * Ang Maintenance na ang magsasabi kung Minor o Major (Maintenance::assess).
      */
     private static function incident(array $u, array $d): array {
         $id = idField($d, 'trip_id');
-        $sev = choiceField($d, 'severity', ['Minor', 'Major']);
-        $details = field($d, 'details', 2000);
-        $extra = ['location' => optField($d, 'location', 200), 'cause' => optField($d, 'cause', 255),
-                  'damaged_unit' => optField($d, 'damaged_unit', 150), 'action_taken' => optField($d, 'action_taken', 255)];
-        return transaction(function (PDO $p) use ($u, $id, $sev, $details, $extra) {
+        $row = ['incident_at' => !empty($d['incident_at']) ? dateTimeField($d, 'incident_at') : date('Y-m-d H:i:s'),
+                'location' => field($d, 'location', 200),
+                'details' => field($d, 'details', 2000),
+                'problem' => field($d, 'problem', 255),
+                'cause' => optField($d, 'cause', 255), 'damaged_unit' => optField($d, 'damaged_unit', 150)];
+        return transaction(function (PDO $p) use ($u, $id, $row) {
             $t = self::lockTrip($p, $id);
             self::mustBeTripDispatcher($u, $t);
-            must($t['status'] === 'In Progress', 'Incidents are reported for a trip in progress.', 409);
-            must(!one($p, "SELECT id FROM incidents WHERE trip_id=? AND status='Reported'", [$id]), 'This trip already has an open incident. Wait for Motorpool to resolve it.', 409);
+            must(in_array($t['status'], ['Dispatched', 'In Transit'], true), 'Incidents are reported for a dispatched trip.', 409);
+            must(!one($p, "SELECT id FROM incidents WHERE trip_id=? AND status IN ('Reported','Under Repair','Repaired - Cleared to Continue')", [$id]), 'This trip already has an open incident.', 409);
             $iid = insert($p, 'incidents', ['trip_id' => $id, 'vehicle_id' => $t['vehicle_id'], 'attempt_number' => $t['attempt_number'],
-                'severity' => $sev, 'details' => $details, 'reported_by' => $u['id']] + $extra);
+                'status' => 'Reported', 'reported_by' => $u['id']] + $row);
+            // Lalabas agad sa Maintenance module (maintenance_type ay itatama pagka-assess).
             $jobId = insert($p, 'maintenance_jobs', ['vehicle_id' => $t['vehicle_id'], 'source' => 'Incident', 'incident_id' => $iid, 'trip_id' => $id,
-                'maintenance_type' => $sev === 'Minor' ? 'Roadside Repair' : 'Repair', 'description' => $details . ($extra['location'] ? ' @ ' . $extra['location'] : ''),
+                'maintenance_type' => 'Repair', 'description' => $row['problem'] . ': ' . $row['details'] . ' @ ' . $row['location'],
                 'status' => 'Reported', 'created_by' => $u['id']]);
             run($p, 'UPDATE maintenance_jobs SET job_number=? WHERE id=?', [refNumber('JOB', $jobId), $jobId]);
+            self::setStatus($p, $u['id'], $t, 'On Hold - Incident Reported', 'incident reported', $row['problem'] . ' @ ' . $row['location']);
             $plate = one($p, 'SELECT plate_number FROM vehicles WHERE id=?', [$t['vehicle_id']])['plate_number'];
-            if ($sev === 'Major') {
-                // Major: truck goes home for repair; the trip is for reschedule.
-                self::setStatus($p, $u['id'], $t, 'Rescheduled', 'major incident: trip for reschedule', $details);
-                FleetState::setStatus($p, (int)$t['vehicle_id'], 'Under Maintenance', $u['id'], 'Major incident on ' . $t['trip_ref']);
-                FleetState::setCrew($p, [$t['driver_id'], $t['driver2_id'], $t['helper_id']], 'On Trip', 'Available');
-                $msg = 'Major incident recorded. Trip is Rescheduled and the truck is Under Maintenance.';
-            } else {
-                self::event($p, $u['id'], $id, 'minor incident: mechanic to be sent', 'In Progress', 'In Progress', $details);
-                $msg = 'Minor incident recorded. Motorpool will send a mechanic; the trip continues.';
-            }
-            Notify::roles($p, ['motorpool'], 'Incident', "$sev incident on $plate (" . $t['trip_ref'] . "): $details", 'maintenance');
-            Notify::roles($p, ['operations_head'], 'Incident', "$sev incident on $plate (" . $t['trip_ref'] . ').', 'incidents');
-            return ['incident_id' => $iid, 'job_id' => $jobId, 'message' => $msg];
+            Notify::roles($p, ['motorpool'], 'Incident', "Incident on $plate (" . $t['trip_ref'] . '): ' . $row['problem'] . ' @ ' . $row['location'] . '. Please assess (Minor or Major).', 'maintenance');
+            Notify::roles($p, ['operations_head'], 'Incident', "Incident on $plate (" . $t['trip_ref'] . '). Trip is On Hold.', 'incidents');
+            return ['incident_id' => $iid, 'job_id' => $jobId, 'message' => 'Incident reported. Trip is On Hold - Incident Reported while Maintenance assesses the damage.'];
         });
     }
 
@@ -677,13 +707,13 @@ final class Trips {
         return transaction(function (PDO $p) use ($u, $d, $id, $notes, $units) {
             $t = self::lockTrip($p, $id);
             self::mustBeTripDispatcher($u, $t);
-            must($t['status'] === 'In Progress', 'Trip is not in progress.', 409);
+            must(in_array($t['status'], ['Dispatched', 'In Transit'], true), 'Trip is not on the road (or is on hold).', 409);
             $res = self::saveChecklist($p, $u, $t, 'Arrival', $d);
             must($t['pre_odometer'] !== null && $res['km'] >= (int)$t['pre_odometer'], 'Arrival odometer (' . $res['km'] . ') is lower than the departure odometer (' . $t['pre_odometer'] . ').', 409);
             $traveled = $res['km'] - (int)$t['pre_odometer'];
             run($p, "UPDATE trips SET status='Returned', arrival_at=NOW(), arrival_odometer=?, km_traveled=COALESCE(km_traveled,0)+?, delivery_notes=?, units_delivered=? WHERE id=?",
                 [$res['km'], $traveled, $notes, $units, $id]);
-            self::event($p, $u['id'], $id, 'arrival checklist completed', 'In Progress', 'Returned', "Odometer in: {$res['km']}; traveled $traveled km" . ($res['has_not_ok'] ? '; NOT OK items found' : ''));
+            self::event($p, $u['id'], $id, 'arrival checklist completed', $t['status'], 'Returned', "Odometer in: {$res['km']}; traveled $traveled km" . ($res['has_not_ok'] ? '; NOT OK items found' : ''));
             run($p, 'UPDATE vehicles SET odometer_km=GREATEST(odometer_km, ?), km_since_pm=km_since_pm+? WHERE id=?', [$res['km'], $traveled, $t['vehicle_id']]);
             $warn = [];
             if ($res['has_not_ok']) {
@@ -742,25 +772,49 @@ final class Trips {
         });
     }
 
-    /** Re-dispatch after major repair: system sets 2nd attempt (PDF p.16-18). */
-    private static function secondAttempt(array $u, array $d): array {
+    /**
+     * Scenario C.1 step 7: Resume Trip pagkatapos ng minor repair.
+     * Babalik sa "In Transit". Hindi ito Second Attempt.
+     */
+    private static function resume(array $u, array $d): array {
         $id = idField($d, 'trip_id');
         return transaction(function (PDO $p) use ($u, $id) {
             $t = self::lockTrip($p, $id);
             self::mustBeTripDispatcher($u, $t);
-            must($t['status'] === 'Rescheduled', 'Only a rescheduled trip can be re-dispatched.', 409);
+            must($t['status'] === 'On Hold - Incident Reported', 'Trip is not on hold.', 409);
+            $inc = one($p, 'SELECT * FROM incidents WHERE trip_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE', [$id]);
+            must($inc && $inc['status'] === 'Repaired - Cleared to Continue', 'Wait for Maintenance to confirm the repair (Repaired - Cleared to Continue).', 409);
+            run($p, "UPDATE incidents SET status='Resolved', resolved_at=COALESCE(resolved_at, NOW()) WHERE id=?", [$inc['id']]);
+            self::setStatus($p, $u['id'], $t, 'In Transit', 'trip resumed after minor repair', 'Continuation of the original trip (not a second attempt).');
+            Notify::roles($p, ['operations_head'], 'Trip resumed', $t['trip_ref'] . ' resumed after a minor repair.', 'trips');
+            return ['trip_id' => $id, 'message' => 'Trip resumed. Status is now In Transit.'];
+        });
+    }
+
+    /**
+     * Scenario C.2 step 7: Reschedule Trip pagkatapos ng major repair.
+     * Bagong schedule gamit ang naayos na truck. Uulitin ang Pre-Dispatch
+     * Checklist (at fund request kung kailangan). Ang Confirm Redispatch ang
+     * magtatala nito bilang Second Attempt.
+     */
+    private static function reschedule(array $u, array $d): array {
+        $id = idField($d, 'trip_id');
+        $when = dateTimeField($d, 'scheduled_at');
+        return transaction(function (PDO $p) use ($u, $id, $when) {
+            $t = self::lockTrip($p, $id);
+            self::mustBeTripDispatcher($u, $t);
+            must($t['status'] === 'For Reschedule', 'Only a trip that is For Reschedule can be rescheduled.', 409);
             $v = one($p, 'SELECT status, plate_number FROM vehicles WHERE id=? FOR UPDATE', [$t['vehicle_id']]);
-            must($v && $v['status'] === 'Available', 'The truck is still ' . ($v['status'] ?? 'missing') . '. Motorpool must finish the repair and set it Available, or the Operations Head can assign another truck.', 409);
+            must($v && $v['status'] === 'Available', 'The truck is still ' . ($v['status'] ?? 'missing') . '. Maintenance must finish the repair and set it Available, or the Operations Head can assign another truck.', 409);
             $next = (int)$t['attempt_number'] + 1;
-            // TODO PENDING COMPANY CONFIRMATION (C07): extra allowance / re-approval
-            // rules for a second attempt are not in the PDF. The released fund of the
-            // first attempt is kept; a new pre-departure checklist and Ops Head
-            // clearance are required again.
-            run($p, 'UPDATE trips SET attempt_number=?, status=?, ops_cleared_by=NULL, ops_cleared_at=NULL, pre_odometer=NULL, scheduled_at=GREATEST(scheduled_at, NOW()) WHERE id=?', [$next, 'Assigned', $id]);
-            self::event($p, $u['id'], $id, 'system set attempt #' . $next, 'Rescheduled', 'Assigned', 'Repaired truck ' . $v['plate_number'] . ' re-dispatch. New checklist and clearance required.');
-            FleetState::setStatus($p, (int)$t['vehicle_id'], 'Assigned', $u['id'], 'Attempt ' . $next . ' of ' . $t['trip_ref']);
-            Notify::roles($p, ['operations_head'], 'Second attempt', $t['trip_ref'] . ' is set as attempt #' . $next . '.', 'trips');
-            return ['trip_id' => $id, 'message' => 'Trip set as attempt #' . $next . '. Do the pre-departure checklist again.'];
+            // TODO PENDING COMPANY CONFIRMATION (C07): kung kailangan ng bagong fund para
+            // sa redispatch. Ang PDF: "kung applicable", kaya optional ang fund request.
+            run($p, 'UPDATE trips SET attempt_number=?, status=?, pre_odometer=NULL, scheduled_at=? WHERE id=?', [$next, 'Pre-Assigned', $when, $id]);
+            self::event($p, $u['id'], $id, 'trip rescheduled', 'For Reschedule', 'Pre-Assigned',
+                'New schedule ' . $when . ' with repaired truck ' . $v['plate_number'] . '. Pre-dispatch checklist again; Confirm Redispatch records Second Attempt.');
+            FleetState::setStatus($p, (int)$t['vehicle_id'], 'Assigned', $u['id'], 'Rescheduled ' . $t['trip_ref']);
+            Notify::roles($p, ['operations_head'], 'Trip rescheduled', $t['trip_ref'] . ' was rescheduled to ' . $when . '.', 'trips');
+            return ['trip_id' => $id, 'message' => 'Trip rescheduled. Do the pre-dispatch checklist again, then Confirm Redispatch.'];
         });
     }
 
@@ -770,15 +824,15 @@ final class Trips {
         $id = idField($d, 'trip_id'); $reason = field($d, 'reason', 300);
         return transaction(function (PDO $p) use ($u, $id, $reason) {
             $t = self::lockTrip($p, $id);
-            must(!in_array($t['status'], ['In Progress', 'Returned', 'Completed', 'Cancelled', 'Rejected'], true), 'This trip can no longer be cancelled.', 409);
+            must(in_array($t['status'], ['Pending Review', 'Awaiting Resources', 'Pre-Assigned', 'Ready for Dispatch', 'For Reschedule'], true), 'This trip can no longer be cancelled.', 409);
             run($p, 'UPDATE trips SET cancel_reason=? WHERE id=?', [$reason, $id]);
             self::setStatus($p, $u['id'], $t, 'Cancelled', 'trip cancelled', $reason);
-            $fund = self::activeFund($p, $id);
+            $fund = self::openFund($p, $id);
             $msg = 'Trip cancelled.';
-            if ($fund && in_array($fund['status'], ['Pending Approval', 'Approved', 'Pending Release', 'Ready for Release'], true)) {
+            if ($fund && in_array($fund['status'], ['Pending Approval', 'Ready for Release'], true)) {
                 run($p, "UPDATE fund_requests SET status='Cancelled' WHERE id=?", [$fund['id']]);
                 audit($p, $u['id'], 'Finance', 'fund ' . $fund['id'], 'fund cancelled (trip cancelled)');
-            } elseif ($fund && in_array($fund['status'], ['Released', 'Completed'], true)) {
+            } elseif ($fund && $fund['status'] === 'Released') {
                 // TODO PENDING COMPANY CONFIRMATION: return of released cash is handled by Finance liquidation.
                 Notify::roles($p, ['finance'], 'Liquidation', $t['trip_ref'] . ' was cancelled after the fund was released. Please record the liquidation / returned cash.', 'funds');
                 $msg .= ' The fund was already released; Finance was asked to record the liquidation.';
@@ -799,7 +853,7 @@ final class Trips {
         return transaction(function (PDO $p) use ($u, $id, $row) {
             $t = self::lockTrip($p, $id);
             if (roleIsDispatcher($u['role'])) self::mustBeTripDispatcher($u, $t);
-            must(in_array($t['status'], ['In Progress', 'Returned', 'Completed'], true), 'Waybills are recorded for dispatched or completed trips.', 409);
+            must(in_array($t['status'], array_merge(self::ON_ROAD, ['Returned', 'Completed']), true), 'Waybills are recorded for dispatched or completed trips.', 409);
             must(!one($p, 'SELECT id FROM waybills WHERE trip_id=? AND waybill_number=?', [$id, $row['waybill_number']]), 'This waybill number is already recorded for the trip.', 409);
             $wid = insert($p, 'waybills', ['trip_id' => $id, 'recorded_by' => $u['id']] + $row);
             self::event($p, $u['id'], $id, 'waybill recorded', $t['status'], $t['status'], $row['waybill_number']);

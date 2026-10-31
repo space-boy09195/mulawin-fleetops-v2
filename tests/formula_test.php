@@ -21,8 +21,13 @@ $pnl = Settings::projectedPnl(15000, 143, 651);
 same('P&L total expense (G36)', $pnl['total_expense'], 10002.92);
 same('P&L net income (G44)', $pnl['net_income'], 4997.08);
 same('P&L margin % (G46 x 100)', (float)$pnl['margin_percent'], 33.31);
-$a = Settings::computeItems('trip_allowance', ['km' => 143, 'toll' => 651]);
-same('Trip allowance = fuel + RFID', $a['total'], 4226);
+// Bagong FMS PDF Scenario B step 4: preset fund categories.
+$cats = array_column(Settings::computeItems('trip_allowance', [])['lines'], 'amount', 'name');
+same('Fund category Forklift Operator = 100', $cats['Forklift Operator'] ?? -1, 100);
+same('Fund category Checker = 100', $cats['Checker'] ?? -1, 100);
+same('Fund category Passway = 200', $cats['Passway'] ?? -1, 200);
+same('Fund category Driver Meal Allowance = 300', $cats['Driver Meal Allowance'] ?? -1, 300);
+same('Fund category Helper Meal Allowance = 200', $cats['Helper Meal Allowance'] ?? -1, 200);
 // DRIVERS PAYROLL: 6 days attendance
 $d = Settings::computeItems('payroll_deduction', ['days' => 6, 'ledgers' => ['Cash Advance' => 500]]);
 $by = array_column($d['lines'], 'amount', 'name');

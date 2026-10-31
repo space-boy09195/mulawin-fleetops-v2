@@ -12,14 +12,14 @@ SR-010,Crew,Driver/helper/staff records; license expiry; status; availability; t
 SR-011,Operations,Scenario A: client to Operations Head; system assigns,FMS PDF p.16,Trips::create (Ops Head),Implemented
 SR-012,Operations,Scenario B: client to dispatcher; Ops Head sets truck type and dispatcher type,FMS PDF p.16-17,Trips::create + review,Implemented
 SR-013,Operations,System auto-assigns truck/driver/helper,FMS PDF p.16,Trips::autoAssign,Implemented (rule = C01)
-SR-014,Operations,System computes fund/allowance and sends to Finance,FMS PDF p.16,Core/TripFunds.php; Formula Settings,Implemented (formula = C02)
-SR-015,Operations,Pre-departure checklist then Ready for Dispatch; fund Ready for Release,FMS PDF p.16; checklist scans,Trips checklist_start/checklist_departure; Inspections/Checklist.php,Implemented
-SR-016,Operations,Ops Head departure clearance,FMS PDF II.D step 8,Trips::clear,Implemented
+SR-014,Operations,Dispatcher fund request: preset categories plus added categories; system computes the total,FMS PDF v2 Scenario A step 3; B step 4,Modules/Funds.php request/revise; Core/TripFunds.php; Formula Settings (Fund request categories),Implemented (C02 answered)
+SR-015,Operations,Pre-dispatch checklist then Ready for Dispatch; can be done while Finance releases the fund,FMS PDF v2 Scenario A step 6; B step 7; checklist scans,Trips checklist_start/checklist_departure; Inspections/Checklist.php,Implemented
+SR-016,Operations,Dispatch validation: Confirm Dispatch enabled only when fund Released and trip Ready for Dispatch (Ops Head clearance removed),FMS PDF v2 Scenario A steps 7-8; B steps 8-9,Trips::dispatch; trips.js dispatchWhy,Implemented
 SR-017,Operations,Dispatcher confirms dispatch after release; Finance status Completed,FMS PDF p.16,Trips::dispatch,Implemented
 SR-018,Operations,Container: nomination/booking; pre-advice; empty container,FMS PDF II.E Container,Trips::details + dispatch checks,Implemented
 SR-019,Operations,Wing Van: confirm with client; give truck details and plate,FMS PDF II.E Wing Van,Trips::details + dispatch checks,Implemented
 SR-020,Operations,Progress; delivery; delays; incidents; departure and arrival times,FMS PDF II.F,Trips progress/incident/arrival,Implemented (delay causes from repo docs Q5/Q8)
-SR-021,Operations,Minor incident: mechanic; trip continues. Major: reschedule; repair; 2nd attempt,FMS PDF pp.16-18,Trips::incident; Maintenance::jobComplete; Trips::secondAttempt,Implemented (C07)
+SR-021,Operations,Incident: trip On Hold; Maintenance assesses. Minor: Repaired - Cleared to Continue then Resume Trip (In Transit). Major: For Reschedule; repair; Reschedule Trip; Confirm Redispatch = Second Attempt,FMS PDF v2 Scenario C,Trips::incident/resume/reschedule/dispatch; Maintenance::assess/jobComplete,Implemented (C07)
 SR-022,Operations,Arrival checklist; compare before/after; photos; who and when; min duration,FMS PDF II.G,Trips::arrival; Trip.compare (UI); Documents inspection; inspection_min_minutes,Implemented
 SR-023,Operations,Waybills as basis of billing and trip pay,FMS PDF II.H; Payroll role,waybills table; Trips::waybillAdd,Implemented
 SR-024,Maintenance,Incident appears in Motorpool,FMS PDF p.17,maintenance_jobs from incident,Implemented
@@ -28,8 +28,8 @@ SR-026,Maintenance,Repair process: issue; photos; parts used; costs; status; com
 SR-027,Purchasing,Motorpool requests parts; Purchasing checks stock and releases,FMS PDF p.17 A,Maintenance.part_request; Purchasing.issue,Implemented
 SR-028,Purchasing,Purchase approval >10k Admin; <=10k Finance; budget check; insufficient = rejected by system,FMS PDF p.17 B,Purchasing::decide; purchase_approval_threshold,Implemented
 SR-029,Purchasing,Suppliers; part numbers; costs; stock in/out; adjustments; receipts; warranty; low-stock alerts,FMS PDF II.K,Modules/Purchasing.php,Implemented
-SR-030,Finance,Fund approval Ops Head <=15000; Admin >15000,FMS PDF p.13,Funds::approve; fund_approval_threshold,Implemented (C04)
-SR-031,Finance,Finance processes; releases; records payment details; liquidation,FMS PDF II.I; Finance dashboard,Modules/Funds.php,Implemented
+SR-030,Finance,Fund approval by Operations Head (all amounts); approve = Ready for Release; reject = back to dispatcher,FMS PDF v2 Scenario A step 4; B step 5; company instruction (15k limit removed),Funds::approve/reject,Implemented (C04 answered)
+SR-031,Finance,Finance Confirm Release (even before the checklist); records payment details; liquidation,FMS PDF v2 Scenario A step 5; B step 6; II.I,Modules/Funds.php release/liquidate,Implemented (liquidation = C19)
 SR-032,Finance,AP; expenses; vouchers; cheques; disbursements; cash advances; cash flow; budgets,FMS PDF II.I; Finance role,Modules/Finance.php; Core/Money.php,Implemented
 SR-033,Billing,Client profiles; client-specific and route-based rates,FMS PDF II.H,Modules/Billing.php clients page,Implemented
 SR-034,Billing,Invoices linked to completed trips; collections; outstanding; unbilled trips; AR reports,FMS PDF II.H,Modules/Billing.php billing page; Analytics money section,Implemented (C10)
@@ -51,3 +51,5 @@ SR-049,General,Formulas editable without code,User request 2026-10-31,Formula Se
 SR-050,General,Modular: one failing module does not stop others,User request; V2 README,Actions::load try/catch; per-page data; per-module JS,Implemented and tested
 SR-051,Design,Follow the repo design,User request,layout.css/login.css/vendor from mulawin_fleetops,Implemented
 SR-052,Structure,Follow the V2 zip structure,User request,backend/ public/ database/ scripts/ storage/ docs/ tests/,Implemented
+SR-053,Operations,Scenario B delivery request appears to Ops Head as Pending Review; Ops Head completes trip details and confirms,FMS PDF v2 Scenario B steps 2-3,Trips::create/review,Implemented
+SR-054,Maintenance,Maintenance assesses incident severity; major = truck cannot be assigned while Under Maintenance,FMS PDF v2 Scenario C steps 3-4,Maintenance::assess; Trips::autoAssign excludes open repairs,Implemented

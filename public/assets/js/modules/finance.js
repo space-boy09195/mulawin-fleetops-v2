@@ -11,61 +11,55 @@ const payFields = (extra = []) => [
 
 App.page('funds', {
   title: 'Trip Funds & Allowances',
-  subtitle: 'System-computed allowance → approval (Ops Head ≤ limit, Admin > limit) → Finance processing → release after checklist → completed at dispatch → liquidation.',
+  subtitle: 'Dispatcher fund request (preset categories) → Operations Head approval → Ready for Release → Finance confirms release (even before the checklist) → completed at dispatch → liquidation.',
   render(ctx) {
     const d = ctx.data, c = d.can, fs = d.funds || [];
     const role = App.me.user.role;
-    const canApprove = (f) => f.status === 'Pending Approval' && f.approver_role === role;
-    const mineTeam = (f) => UI.role('operations_head') || f.dispatcher_role === role;
+    const mineTeam = (f) => f.dispatcher_role === role;
+    const tripOpen = (f) => ['Pre-Assigned', 'Ready for Dispatch', 'For Reschedule'].includes(f.trip_status);
+    const lines = (f) => { try { return JSON.parse(f.breakdown_json || '{}'); } catch { return {}; } };
     const actions = (f) => {
       const b = [UI.btn('view', 'Breakdown', 'outline-secondary', 'bi-calculator')];
-      if (canApprove(f)) b.push(UI.btn('approve', 'Approve', 'success'), UI.btn('reject', 'Reject', 'outline-danger'));
-      if (c.adjust && f.status === 'Pending Approval' && mineTeam(f)) b.push(UI.btn('adjust', 'Adjust amount', 'outline-primary'));
-      if (c.adjust && f.status === 'Rejected' && mineTeam(f) && ['Assigned', 'Ready for Dispatch'].includes(f.trip_status)) b.push(UI.btn('resubmit', 'Re-submit', 'outline-primary'));
-      if (c.process && f.status === 'Approved') b.push(UI.btn('process', 'Process', 'primary'));
-      if (c.process && ['Approved', 'Pending Release', 'Ready for Release'].includes(f.status)) b.push(UI.btn('reject', 'Reject', 'outline-danger'));
-      if (c.release && f.status === 'Ready for Release') b.push(UI.btn('release', 'Release fund', 'success', 'bi-cash'));
+      if (c.approve && f.status === 'Pending Approval') b.push(UI.btn('approve', 'Approve', 'success'), UI.btn('reject', 'Reject', 'outline-danger'));
+      if (c.request && f.status === 'Rejected' && mineTeam(f) && tripOpen(f)) b.push(UI.btn('revise', 'Revise and resubmit', 'warning', 'bi-pencil-square'));
+      if (c.release && f.status === 'Ready for Release' && tripOpen(f)) b.push(UI.btn('release', 'Confirm release', 'success', 'bi-cash'));
       if (c.liquidate && ['Released', 'Completed'].includes(f.status) && f.liquidation_status !== 'Liquidated') b.push(UI.btn('liq', 'Liquidate', 'outline-warning'));
       return b.join('');
     };
     const onAction = (act, f) => {
-      const bd = (() => { try { return JSON.parse(f.breakdown_json || '{}'); } catch { return {}; } })();
-      if (act === 'view') return UI.modal('Fund computation — ' + UI.esc(f.trip_ref), `<p class="small">${UI.esc(f.client)} · ${UI.esc(f.origin)} → ${UI.esc(f.destination)} · ${UI.num(f.distance_km, 1)} km · ${UI.esc(f.plate_number || '')}</p>
-        ${UI.breakdown(bd.lines, f.amount, 'Trip allowance')}
-        ${bd.adjust_reason ? `<p class="small mt-2"><b>Adjustment reason:</b> ${UI.esc(bd.adjust_reason)}</p>` : ''}
-        <p class="small text-muted mt-2">Values used: ${Object.entries(bd.formula?.values || {}).map(([k, v]) => UI.esc(k) + ' = ' + UI.esc(v)).join(', ')} (saved with this request; later formula changes do not change it).</p>
-        <table class="table table-sm small">${[['Approver', UI.label(f.approver_role)], ['Approved by', f.approved_by_name], ['Processed by', f.processed_by_name], ['Released by', f.released_by_name], ['Release method / ref.', [f.release_method, f.release_reference].filter(Boolean).join(' / ')],
+      const bd = lines(f);
+      if (act === 'view') return UI.modal('Fund request — ' + UI.esc(f.trip_ref), `<p class="small">${UI.esc(f.client)} · ${UI.esc(f.origin)} → ${UI.esc(f.destination)} · ${UI.esc(f.plate_number || '')}</p>
+        ${UI.breakdown(bd.lines, f.amount, 'Total requested fund')}
+        ${bd.notes ? `<p class="small mt-2"><b>Notes:</b> ${UI.esc(bd.notes)}</p>` : ''}
+        <p class="small text-muted mt-2">"preset amount" = amount saved in Formula Settings when the request was made (later changes do not change it). "added by dispatcher" = extra category.</p>
+        <table class="table table-sm small">${[['Requested by', f.requested_by_name], ['Approved by', f.approved_by_name], ['Released by', f.released_by_name], ['Release method / ref.', [f.release_method, f.release_reference].filter(Boolean).join(' / ')],
           ['Liquidation', f.liquidation_status + (f.liquidated_amount ? ': spent ' + UI.money(f.liquidated_amount) + ', returned ' + UI.money(f.returned_amount) : '')], ['Rejected reason', f.rejected_reason]].filter(x => x[1]).map(([k, v]) => `<tr><th>${k}</th><td>${UI.esc(v)}</td></tr>`).join('')}</table>`, null, { size: '' });
-      if (act === 'approve') return UI.confirmAction('Approve fund request', `Approve ${UI.money(f.amount)} for ${UI.esc(f.trip_ref)}?`, 'Funds.approve', { fund_id: f.id });
-      if (act === 'reject') return UI.confirmAction('Reject fund request', `Reject the fund request of ${UI.esc(f.trip_ref)}?`, 'Funds.reject', { fund_id: f.id }, { danger: true, submit: 'Reject', fields: [{ name: 'reason', label: 'Reason', required: true, col: 12 }] });
-      if (act === 'process') return UI.confirmAction('Process fund', `Process ${UI.money(f.amount)} for ${UI.esc(f.trip_ref)}? It becomes "Pending Release" until the dispatcher finishes the checklist.`, 'Funds.process', { fund_id: f.id });
-      if (act === 'resubmit') return UI.confirmAction('Re-submit', 'Compute a new fund request for this trip?', 'Funds.resubmit', { fund_id: f.id });
-      if (act === 'release') return UI.formModal('Release fund — ' + UI.esc(f.trip_ref), [{ name: 'fund_id', type: 'hidden', value: f.id }, ...payFields()], 'Funds.release', { intro: `Amount: <b>${UI.money(f.amount)}</b>. A payment voucher, disbursement and Trip Allowance expense are recorded.` });
+      if (act === 'approve') return UI.confirmAction('Approve fund request', `Approve ${UI.money(f.amount)} for ${UI.esc(f.trip_ref)}?<br><span class="small text-muted">It becomes Ready for Release and goes to Finance.</span>`, 'Funds.approve', { fund_id: f.id });
+      if (act === 'reject') return UI.confirmAction('Reject fund request', `Reject the fund request of ${UI.esc(f.trip_ref)}? It goes back to the dispatcher for revision and resubmission.`, 'Funds.reject', { fund_id: f.id }, { danger: true, submit: 'Reject', fields: [{ name: 'reason', label: 'Reason', required: true, col: 12 }] });
+      if (act === 'revise') {
+        const presetNames = (d.fundCategories || []).map(x => x.name);
+        const old = bd.lines || [];
+        return UI.fundForm({ title: 'Revise and resubmit — ' + UI.esc(f.trip_ref), categories: d.fundCategories, action: 'Funds.revise', payload: { fund_id: f.id },
+          selected: old.filter(l => l.calc === 'preset').map(l => l.name).filter(n => presetNames.includes(n)),
+          extra: old.filter(l => l.calc === 'added').map(l => ({ name: l.name, amount: l.amount })), notes: bd.notes,
+          intro: 'Rejected because: <b>' + UI.esc(f.rejected_reason || '') + '</b>. Change the categories, then resubmit to the Operations Head.' });
+      }
+      if (act === 'release') return UI.formModal('Confirm release — ' + UI.esc(f.trip_ref), [{ name: 'fund_id', type: 'hidden', value: f.id }, ...payFields()], 'Funds.release', { intro: `Amount: <b>${UI.money(f.amount)}</b>. Click after the money is given. A payment voucher, disbursement and Trip Allowance expense are recorded.`, submit: 'Confirm release' });
       if (act === 'liq') return UI.formModal('Liquidation — ' + UI.esc(f.trip_ref), [{ name: 'fund_id', type: 'hidden', value: f.id },
         { name: 'liquidated_amount', label: 'Actual amount spent (PHP)', type: 'money', required: true, col: 6 }, { name: 'liquidation_notes', label: 'Notes', col: 6 }], 'Funds.liquidate', { size: '', intro: `Released: ${UI.money(f.amount)}. The difference is recorded as returned cash. Attach receipts in Documents (record type "fund").` });
-      if (act === 'adjust') {
-        const sys = (bd.lines || []).filter(l => l.calc !== 'adjustment'), adj = (bd.lines || []).filter(l => l.calc === 'adjustment');
-        const rows = [0, 1, 2, 3].map(i => `<div class="row g-2 mb-1"><div class="col-8"><input class="form-control form-control-sm" name="ln${i}" placeholder="Item (e.g. Meal allowance, Extra toll)" value="${UI.esc(adj[i]?.name || '')}"></div>
-          <div class="col-4"><input class="form-control form-control-sm" type="number" step="0.01" name="la${i}" placeholder="Amount (− to reduce)" value="${adj[i]?.amount ?? ''}"></div></div>`).join('');
-        return UI.modal('Adjust fund — ' + UI.esc(f.trip_ref), `<p class="small">System computation (kept):</p>${UI.breakdown(sys, sys.reduce((s, l) => s + +l.amount, 0), 'System total')}
-          <p class="small mt-3 mb-1">Extra lines:</p>${rows}${UI.fields([{ name: 'reason', label: 'Reason for adjustment', required: true, col: 12 }])}`, async (x) => {
-          const lines = [0, 1, 2, 3].map(i => ({ name: x['ln' + i], amount: x['la' + i] })).filter(l => l.name);
-          UI.result(await App.api('Funds.adjust', { fund_id: f.id, reason: x.reason, lines })); App.route();
-        });
-      }
     };
     const cnt = (s) => fs.filter(f => f.status === s).length;
     ctx.el.innerHTML = UI.cards([
-      { label: 'Pending approval', value: cnt('Pending Approval'), icon: 'bi-hourglass-split', color: 'amber', hint: 'Ops Head ≤ ' + UI.money(d.threshold) + ', Admin above' },
-      { label: 'Approved (Finance to process)', value: cnt('Approved'), icon: 'bi-check2-square', color: 'blue' },
-      { label: 'Pending release (checklist)', value: cnt('Pending Release'), icon: 'bi-clipboard-check', color: 'blue' },
-      { label: 'Ready for release', value: cnt('Ready for Release'), icon: 'bi-cash-stack', color: 'green' },
+      { label: 'Pending approval (Ops Head)', value: cnt('Pending Approval'), icon: 'bi-hourglass-split', color: 'amber' },
+      { label: 'Ready for release (Finance)', value: cnt('Ready for Release'), icon: 'bi-cash-stack', color: 'blue' },
+      { label: 'Released', value: cnt('Released'), icon: 'bi-check2-square', color: 'green' },
+      { label: 'Rejected (dispatcher to revise)', value: fs.filter(f => f.status === 'Rejected' && tripOpen(f)).length, icon: 'bi-arrow-counterclockwise', color: 'red' },
       { label: 'Not yet liquidated', value: fs.filter(f => ['Released', 'Completed'].includes(f.status) && f.liquidation_status !== 'Liquidated').length, icon: 'bi-clipboard-x', color: 'amber' },
     ]);
     const box = document.createElement('div'); ctx.el.append(box);
     box.innerHTML = UI.table([['Trip', 'trip_ref'], ['Client', 'client'], ['Route', 'destination', (x, r) => UI.esc(r.origin) + ' → ' + UI.esc(x)], ['Truck', 'plate_number'],
-      ['Trip status', 'trip_status', 'badge'], ['Amount', 'amount', 'money'], ['Approver', 'approver_role', (x) => UI.esc(UI.label(x))], ['Fund status', 'status', 'badge'],
-      ['Released', 'released_at', 'datetime'], ['Liquidation', 'liquidation_status', 'badge'], ['Requested', 'created_at', 'datetime']], fs, { id: 'funds', title: 'Fund requests', actions, onAction, empty: 'Fund requests are created automatically when a trip is assigned.' });
+      ['Trip status', 'trip_status', 'badge'], ['Amount', 'amount', 'money'], ['Requested by', 'requested_by_name'], ['Fund status', 'status', 'badge'],
+      ['Released', 'released_at', 'datetime'], ['Liquidation', 'liquidation_status', 'badge'], ['Requested', 'created_at', 'datetime']], fs, { id: 'funds', title: 'Fund requests', actions, onAction, empty: 'No fund requests yet. The dispatcher submits one from the Dispatch Board for each pre-assigned trip.' });
     UI.activate(box);
   },
 });

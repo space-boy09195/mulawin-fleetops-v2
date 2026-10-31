@@ -115,6 +115,11 @@ final class Analytics {
     // =================================================================
     // DASHBOARDS (FMS PDF III)
     // =================================================================
+    /** Sum of counts for several statuses. */
+    private static function sumOf(array $counts, array $statuses): int {
+        $n = 0; foreach ($statuses as $st) $n += (int)($counts[$st] ?? 0); return $n;
+    }
+
     /** Management / Admin dashboard. */
     private static function management(PDO $p, array $u): array {
         $m0 = date('Y-m-01'); $prev0 = date('Y-m-01', strtotime('first day of last month')); $prev1 = date('Y-m-t', strtotime('first day of last month'));
@@ -122,8 +127,8 @@ final class Analytics {
         $tripsMonth = self::val($p, "SELECT COUNT(*) v FROM trips t WHERE t.status NOT IN ('Cancelled','Rejected') AND $td>=?", [$m0]);
         $tripsPrev = self::val($p, "SELECT COUNT(*) v FROM trips t WHERE t.status NOT IN ('Cancelled','Rejected') AND $td BETWEEN ? AND ?", [$prev0, $prev1]);
         $status = []; foreach (many($p, "SELECT status, COUNT(*) n FROM trips GROUP BY status") as $r) $status[$r['status']] = (int)$r['n'];
-        $ongoing = ($status['In Progress'] ?? 0) + ($status['Returned'] ?? 0);
-        $pending = ($status['Pending Approval'] ?? 0) + ($status['Awaiting Resources'] ?? 0) + ($status['Assigned'] ?? 0) + ($status['Ready for Dispatch'] ?? 0) + ($status['Rescheduled'] ?? 0);
+        $ongoing = self::sumOf($status, ['Dispatched', 'On Hold - Incident Reported', 'In Transit', 'Returned']);
+        $pending = self::sumOf($status, ['Pending Review', 'Awaiting Resources', 'Pre-Assigned', 'Ready for Dispatch', 'For Reschedule']);
         $fleet = self::fleetCounts($p);
         $billedMonth = self::val($p, "SELECT COALESCE(SUM(net_amount),0) v FROM billings WHERE status<>'Cancelled' AND invoice_date>=?", [$m0]);
         $collectedMonth = self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM collections WHERE payment_date>=?', [$m0]);
@@ -134,9 +139,8 @@ final class Analytics {
         $byClient = many($p, "SELECT c.name AS client, COUNT(*) n FROM trips t JOIN clients c ON c.id=t.client_id WHERE t.status NOT IN ('Cancelled','Rejected') AND $td>=? GROUP BY c.id ORDER BY n DESC LIMIT 8", [$m0]);
         $expCat = many($p, 'SELECT category, SUM(amount) total FROM expenses WHERE incurred_on>=? GROUP BY category ORDER BY total DESC', [$m0]);
         $alerts = [];
-        if ($status['Pending Approval'] ?? 0) $alerts[] = ['level' => 'info', 'text' => ($status['Pending Approval']) . ' trip request(s) waiting for the Operations Head.', 'page' => 'trips'];
-        $adminFunds = self::val($p, "SELECT COUNT(*) v FROM fund_requests WHERE status='Pending Approval' AND approver_role='admin'");
-        if ($adminFunds) $alerts[] = ['level' => 'warning', 'text' => (int)$adminFunds . ' fund request(s) above PHP ' . number_format(Settings::value('fund_approval_threshold')) . ' need YOUR approval.', 'page' => 'funds'];
+        if ($status['Pending Review'] ?? 0) $alerts[] = ['level' => 'info', 'text' => ($status['Pending Review']) . ' delivery request(s) are Pending Review by the Operations Head.', 'page' => 'trips'];
+        if ($status['On Hold - Incident Reported'] ?? 0) $alerts[] = ['level' => 'warning', 'text' => $status['On Hold - Incident Reported'] . ' trip(s) are On Hold because of an incident.', 'page' => 'incidents'];
         $adminPr = self::val($p, "SELECT COUNT(*) v FROM purchase_requests WHERE status='Pending Approval' AND approver_role='admin'");
         if ($adminPr) $alerts[] = ['level' => 'warning', 'text' => (int)$adminPr . ' purchase request(s) above PHP ' . number_format(Settings::value('purchase_approval_threshold')) . ' need YOUR approval.', 'page' => 'purchasing'];
         return [
@@ -185,20 +189,20 @@ final class Analytics {
         $byTruck = many($p, "SELECT v.plate_number AS name, COUNT(*) trips, SUM(t.status='Completed') completed FROM trips t JOIN vehicles v ON v.id=t.vehicle_id
             WHERE $td>=? AND t.status NOT IN ('Cancelled','Rejected') GROUP BY v.id ORDER BY trips DESC LIMIT 15", [$m0]);
         $alerts = [];
-        if ($s['Pending Approval'] ?? 0) $alerts[] = ['level' => 'warning', 'text' => $s['Pending Approval'] . ' trip request(s) need your review.', 'page' => 'trips'];
+        if ($s['Pending Review'] ?? 0) $alerts[] = ['level' => 'warning', 'text' => $s['Pending Review'] . ' delivery request(s) need your review.', 'page' => 'trips'];
         if ($myFunds) $alerts[] = ['level' => 'warning', 'text' => (int)$myFunds . ' fund request(s) need your approval.', 'page' => 'funds'];
-        $toClear = self::val($p, "SELECT COUNT(*) v FROM trips WHERE status='Ready for Dispatch' AND ops_cleared_at IS NULL");
-        if ($toClear) $alerts[] = ['level' => 'warning', 'text' => (int)$toClear . ' trip(s) passed the checklist and wait for your departure clearance.', 'page' => 'trips'];
-        if ($s['Awaiting Resources'] ?? 0) $alerts[] = ['level' => 'danger', 'text' => $s['Awaiting Resources'] . ' approved trip(s) have no free truck / crew yet.', 'page' => 'trips'];
+        if ($s['On Hold - Incident Reported'] ?? 0) $alerts[] = ['level' => 'warning', 'text' => $s['On Hold - Incident Reported'] . ' trip(s) are On Hold because of an incident.', 'page' => 'incidents'];
+        if ($s['Awaiting Resources'] ?? 0) $alerts[] = ['level' => 'danger', 'text' => $s['Awaiting Resources'] . ' confirmed trip(s) have no free truck / crew yet.', 'page' => 'trips'];
         return [
             'title' => 'Operations Dashboard', 'subtitle' => 'Trips, fleet and crew today',
             'alerts' => $alerts,
             'cards' => [
-                self::card('Pending trip approvals', $s['Pending Approval'] ?? 0, 'bi-inbox', 'amber', 'trips'),
-                self::card('Approved / assigned', ($s['Assigned'] ?? 0) + ($s['Awaiting Resources'] ?? 0), 'bi-check2-square', 'blue', 'trips'),
+                self::card('Pending review', $s['Pending Review'] ?? 0, 'bi-inbox', 'amber', 'trips'),
+                self::card('Pre-assigned / awaiting', self::sumOf($s, ['Pre-Assigned', 'Awaiting Resources']), 'bi-check2-square', 'blue', 'trips'),
                 self::card('Ready for dispatch', $s['Ready for Dispatch'] ?? 0, 'bi-send-check', 'blue', 'trips'),
-                self::card('On the road', ($s['In Progress'] ?? 0) + ($s['Returned'] ?? 0), 'bi-signpost-split', 'green', 'trips'),
-                self::card('Rescheduled', $s['Rescheduled'] ?? 0, 'bi-arrow-repeat', 'red', 'incidents'),
+                self::card('On the road', self::sumOf($s, ['Dispatched', 'In Transit', 'Returned']), 'bi-signpost-split', 'green', 'trips'),
+                self::card('On hold (incident)', $s['On Hold - Incident Reported'] ?? 0, 'bi-exclamation-triangle', 'red', 'incidents'),
+                self::card('For reschedule', $s['For Reschedule'] ?? 0, 'bi-arrow-repeat', 'red', 'incidents'),
                 self::card('Completed this month', (int)self::val($p, "SELECT COUNT(*) v FROM trips WHERE status='Completed' AND completed_at>=?", [$m0]), 'bi-check2-circle', 'green', 'trip_records'),
                 self::card('Available trucks', $fleet['Available'], 'bi-truck-front', 'green', 'fleet'),
                 self::card('Unavailable / maintenance', $fleet['Unavailable'] + $fleet['Under Maintenance'], 'bi-tools', 'red', 'fleet'),
@@ -227,24 +231,28 @@ final class Analytics {
         $today = many($p, "SELECT t.trip_ref, t.status, c.name AS client, t.destination, t.scheduled_at, v.plate_number,
                 (SELECT f.status FROM fund_requests f WHERE f.trip_id=t.id AND f.status NOT IN ('Rejected','Cancelled') ORDER BY f.id DESC LIMIT 1) AS fund_status
             FROM trips t JOIN clients c ON c.id=t.client_id LEFT JOIN vehicles v ON v.id=t.vehicle_id
-            WHERE t.dispatcher_role=? AND t.status IN ('Pending Approval','Awaiting Resources','Assigned','Ready for Dispatch','In Progress','Returned','Rescheduled')
+            WHERE t.dispatcher_role=? AND t.status IN ('Pending Review','Awaiting Resources','Pre-Assigned','Ready for Dispatch','Dispatched','On Hold - Incident Reported','In Transit','Returned','For Reschedule')
             ORDER BY t.scheduled_at LIMIT 50", [$r]);
         $missingWb = many($p, "SELECT t.trip_ref, c.name AS client, t.completed_at FROM trips t JOIN clients c ON c.id=t.client_id
-            WHERE t.dispatcher_role=? AND t.status IN ('Completed','Returned','In Progress') AND NOT EXISTS (SELECT 1 FROM waybills w WHERE w.trip_id=t.id) ORDER BY t.id DESC LIMIT 30", [$r]);
+            WHERE t.dispatcher_role=? AND t.status IN ('Completed','Returned','Dispatched','In Transit') AND NOT EXISTS (SELECT 1 FROM waybills w WHERE w.trip_id=t.id) ORDER BY t.id DESC LIMIT 30", [$r]);
         $alerts = [];
-        if ($s['Assigned'] ?? 0) $alerts[] = ['level' => 'info', 'text' => $s['Assigned'] . ' pre-assigned trip(s) need the pre-departure checklist.', 'page' => 'trips'];
-        $ready = self::val($p, "SELECT COUNT(*) v FROM trips t WHERE t.dispatcher_role=? AND t.status='Ready for Dispatch' AND t.ops_cleared_at IS NOT NULL AND EXISTS (SELECT 1 FROM fund_requests f WHERE f.trip_id=t.id AND f.status='Released')", [$r]);
-        if ($ready) $alerts[] = ['level' => 'success', 'text' => (int)$ready . ' trip(s) are cleared and funded. Confirm dispatch.', 'page' => 'trips'];
+        if ($s['Pre-Assigned'] ?? 0) $alerts[] = ['level' => 'info', 'text' => $s['Pre-Assigned'] . ' pre-assigned trip(s) need the fund request and the pre-dispatch checklist.', 'page' => 'trips'];
+        $rejected = self::val($p, "SELECT COUNT(*) v FROM fund_requests f JOIN trips t ON t.id=f.trip_id WHERE t.dispatcher_role=? AND f.status='Rejected' AND t.status IN ('Pre-Assigned','Ready for Dispatch','For Reschedule')", [$r]);
+        if ($rejected) $alerts[] = ['level' => 'warning', 'text' => (int)$rejected . ' fund request(s) were rejected. Revise and resubmit.', 'page' => 'funds'];
+        $ready = self::val($p, "SELECT COUNT(*) v FROM trips t WHERE t.dispatcher_role=? AND t.status='Ready for Dispatch' AND EXISTS (SELECT 1 FROM fund_requests f WHERE f.trip_id=t.id AND f.status='Released')", [$r]);
+        if ($ready) $alerts[] = ['level' => 'success', 'text' => (int)$ready . ' trip(s) are Ready for Dispatch with a Released fund. Confirm Dispatch is enabled.', 'page' => 'trips'];
+        $cleared = self::val($p, "SELECT COUNT(*) v FROM trips t WHERE t.dispatcher_role=? AND t.status='On Hold - Incident Reported' AND EXISTS (SELECT 1 FROM incidents i WHERE i.trip_id=t.id AND i.status='Repaired - Cleared to Continue')", [$r]);
+        if ($cleared) $alerts[] = ['level' => 'success', 'text' => (int)$cleared . ' trip(s) are Repaired - Cleared to Continue. Resume the trip.', 'page' => 'trips'];
         if ($missingWb) $alerts[] = ['level' => 'warning', 'text' => count($missingWb) . ' trip(s) have no waybill recorded.', 'page' => 'trip_records'];
         return [
             'title' => ROLE_LABELS[$r] . ' Dashboard', 'subtitle' => 'Trips of your team (' . implode(' / ', $types) . ')',
             'alerts' => $alerts,
             'cards' => [
-                self::card('Waiting for Ops Head', $s['Pending Approval'] ?? 0, 'bi-hourglass', 'amber', 'trips'),
-                self::card('Pre-assigned (checklist)', $s['Assigned'] ?? 0, 'bi-clipboard-check', 'blue', 'trips'),
+                self::card('Pending review', $s['Pending Review'] ?? 0, 'bi-hourglass', 'amber', 'trips'),
+                self::card('Pre-assigned', $s['Pre-Assigned'] ?? 0, 'bi-clipboard-check', 'blue', 'trips'),
                 self::card('Ready for dispatch', $s['Ready for Dispatch'] ?? 0, 'bi-send-check', 'blue', 'trips'),
-                self::card('In progress', ($s['In Progress'] ?? 0) + ($s['Returned'] ?? 0), 'bi-signpost-split', 'green', 'trips'),
-                self::card('Rescheduled', $s['Rescheduled'] ?? 0, 'bi-arrow-repeat', 'red', 'trips'),
+                self::card('On the road', self::sumOf($s, ['Dispatched', 'In Transit', 'Returned']), 'bi-signpost-split', 'green', 'trips'),
+                self::card('On hold / for reschedule', self::sumOf($s, ['On Hold - Incident Reported', 'For Reschedule']), 'bi-arrow-repeat', 'red', 'trips'),
                 self::card('Available trucks', $fleet['Available'], 'bi-truck-front', 'green', 'fleet'),
             ],
             'tables' => [
@@ -291,14 +299,13 @@ final class Analytics {
         $pr = self::val($p, "SELECT COUNT(*) v FROM purchase_requests WHERE status='Pending Approval' AND approver_role='finance'");
         $six = self::sixMonths($p);
         $alerts = [];
-        if ($f['Approved']['n'] ?? 0) $alerts[] = ['level' => 'warning', 'text' => $f['Approved']['n'] . ' approved fund request(s) are waiting for you to process.', 'page' => 'funds'];
         if ($f['Ready for Release']['n'] ?? 0) $alerts[] = ['level' => 'warning', 'text' => $f['Ready for Release']['n'] . ' fund(s) are Ready for Release.', 'page' => 'funds'];
         if ($pr) $alerts[] = ['level' => 'info', 'text' => (int)$pr . ' purchase request(s) need your approval.', 'page' => 'purchasing'];
         if ((int)$payroll['n']) $alerts[] = ['level' => 'info', 'text' => (int)$payroll['n'] . ' payroll(s) are waiting for disbursement.', 'page' => 'finance'];
         return [
             'title' => 'Finance Dashboard', 'subtitle' => date('F Y'), 'alerts' => $alerts,
             'cards' => [
-                self::card('Pending fund requests', (int)(($f['Pending Approval']['n'] ?? 0) + ($f['Approved']['n'] ?? 0)), 'bi-hourglass-split', 'amber', 'funds'),
+                self::card('Pending fund requests (Ops Head)', (int)($f['Pending Approval']['n'] ?? 0), 'bi-hourglass-split', 'amber', 'funds'),
                 self::card('Ready for release', (int)($f['Ready for Release']['n'] ?? 0), 'bi-cash-stack', 'blue', 'funds', 'PHP ' . number_format((float)($f['Ready for Release']['a'] ?? 0), 2)),
                 self::card('Allowances released this month', self::val($p, "SELECT COALESCE(SUM(amount),0) v FROM fund_requests WHERE released_at>=?", [$m0]), 'bi-send', 'green', 'funds', '', 'money'),
                 self::card('Accounts payable balance', (float)$ap['bal'], 'bi-journal-minus', 'red', 'finance', (int)$ap['due_soon'] . ' due within 7 days', 'money'),
@@ -533,7 +540,7 @@ final class Analytics {
         $byCause = [];
         foreach ($delays as $d) $byCause[$d['delay_cause'] ?? 'Other'] = ($byCause[$d['delay_cause'] ?? 'Other'] ?? 0) + 1;
         $clientDelays = $byCause['Client'] ?? 0;
-        $noWaybill = array_values(array_filter($trips, fn($t) => in_array($t['status'], ['Completed', 'Returned', 'In Progress'], true) && !$t['waybills']));
+        $noWaybill = array_values(array_filter($trips, fn($t) => in_array($t['status'], ['Completed', 'Returned', 'Dispatched', 'In Transit'], true) && !$t['waybills']));
         $crewW = preg_replace('/ AND DATE\(COALESCE\(t\.departure_at, t\.scheduled_at\)\) BETWEEN \? AND \?/', '', $w, 1);
         $crewA = array_slice($a, 2);
         $change = $prev > 0 ? round((count($active) - $prev) / $prev * 100, 1) : null;
@@ -544,7 +551,7 @@ final class Analytics {
                 self::card('Total trips', count($active), 'bi-truck', 'green', null, $change === null ? "previous period: $prev" : ($change >= 0 ? '+' : '') . "$change% vs previous ($prev)"),
                 self::card('Completed', $count('Completed'), 'bi-check2-circle', 'green'),
                 self::card('Cancelled', $count('Cancelled'), 'bi-x-circle', 'red'),
-                self::card('Rescheduled (incident)', $count('Rescheduled'), 'bi-arrow-repeat', 'amber'),
+                self::card('For reschedule (incident)', $count('For Reschedule'), 'bi-arrow-repeat', 'amber'),
                 self::card('Units delivered (Car Carrier)', array_sum(array_map(fn($t) => $t['truck_type'] === 'Car Carrier' ? (int)($t['units_delivered'] ?? $t['units_planned'] ?? 0) : 0, $active)), 'bi-car-front', 'blue'),
                 self::card('Reported delays', count($delays), 'bi-clock-history', 'amber', null, $clientDelays . ' caused by client'),
                 self::card('Incidents', count($incidents), 'bi-exclamation-triangle', 'red'),

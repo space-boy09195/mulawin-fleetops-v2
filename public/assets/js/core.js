@@ -268,10 +268,10 @@ UI.isDispatcher = () => UI.role('car_carrier_dispatcher', 'container_wingvan_dis
 /** Status colors (same meaning everywhere). */
 UI.badgeColor = (s) => {
   const v = String(s || '');
-  if (/^(Available|Completed|Paid|Approved|Released|Liquidated|Present|Issued|Received|Active|OK|Resolved|Disbursed|Stock In|Contribution)$/.test(v)) return 'green';
-  if (/^(Assigned|Ready for Dispatch|In Progress|On Trip|Ready for Release|Pending Release|Ordered|Finalized|Submitted to Finance|Scheduled|Partially Paid|Stock Out|Payment)$/.test(v)) return 'blue';
-  if (/^(Pending Approval|Awaiting Resources|Requested|Waiting for Parts|Reported|Draft|Returned|Not Liquidated|Open|Minor|Adjustment|Prepared|Issued Invoice|Client|Pending Documents|VL|SIL|Charge)$/.test(v)) return 'amber';
-  if (/(Under Maintenance|Rejected|Cancelled|Rescheduled|Not Available|Unavailable|Major|Absent|Overdue|Resigned|Inactive)/.test(v)) return 'red';
+  if (/^(Available|Completed|Paid|Approved|Released|Liquidated|Present|Issued|Received|Active|OK|Resolved|Disbursed|Stock In|Contribution|Repaired - Cleared to Continue)$/.test(v)) return 'green';
+  if (/^(Assigned|Pre-Assigned|Ready for Dispatch|Dispatched|In Transit|In Progress|On Trip|Ready for Release|Ordered|Finalized|Submitted to Finance|Scheduled|Partially Paid|Stock Out|Payment)$/.test(v)) return 'blue';
+  if (/^(Pending Approval|Pending Review|Awaiting Resources|Under Repair|Requested|Waiting for Parts|Reported|Draft|Returned|Not Liquidated|Open|Minor|Adjustment|Prepared|Issued Invoice|Client|Pending Documents|VL|SIL|Charge)$/.test(v)) return 'amber';
+  if (/(Under Maintenance|On Hold|For Reschedule|Rejected|Cancelled|Rescheduled|Not Available|Unavailable|Major|Absent|Overdue|Resigned|Inactive)/.test(v)) return 'red';
   return '';
 };
 UI.badge = (s) => s === null || s === undefined || s === '' ? '—' : `<span class="badge-s ${UI.badgeColor(s)}">${UI.esc(s)}</span>`;
@@ -498,6 +498,44 @@ UI.blocks = (spec) => {
 /** Small list showing a computation (name, how, amount). */
 UI.breakdown = (lines, total, totalLabel = 'Total') => `<table class="breakdown w-100">${(lines || []).map(l => `<tr><td>${UI.esc(l.name)}</td><td class="text-muted">${UI.esc(l.explain || '')}</td><td class="num">${UI.money(l.amount)}</td></tr>`).join('')}
   <tr class="total"><td colspan="2">${UI.esc(totalLabel)}</td><td class="num">${UI.money(total)}</td></tr></table>`;
+
+/**
+ * Fund Request form (bagong FMS PDF Scenario A step 3 / B step 4).
+ * Pipili ang dispatcher ng preset categories (may naka-set na halaga) at pwedeng
+ * magdagdag ng ibang category. Ang total ay kino-compute habang pumipili; ang
+ * server pa rin ang kumukuha ng tunay na preset amount.
+ * opts: { title, categories:[{name, amount}], selected:[names], extra:[{name, amount}], notes, action, payload, intro }
+ */
+UI.fundForm = (opts) => {
+  const sel = new Set(opts.selected || []);
+  const extra = (opts.extra || []).concat(Array(Math.max(0, 3 - (opts.extra || []).length)).fill({ name: '', amount: '' }));
+  const cats = (opts.categories || []).map((c, i) => `<label class="d-flex justify-content-between border rounded px-2 py-1 mb-1">
+      <span><input type="checkbox" class="form-check-input me-2 fund-cat" data-name="${UI.esc(c.name)}" data-amount="${+c.amount}" ${sel.has(c.name) ? 'checked' : ''}>${UI.esc(c.name)}</span>
+      <span class="num">${UI.money(c.amount)}</span></label>`).join('') || '<div class="text-muted small">No preset categories yet. Ask Admin or Finance to add them in Formula Settings.</div>';
+  const rows = extra.map((l, i) => `<div class="row g-2 mb-1 fund-extra">
+      <div class="col-8"><input class="form-control form-control-sm" maxlength="80" placeholder="Other expense category" value="${UI.esc(l.name || '')}"></div>
+      <div class="col-4"><input class="form-control form-control-sm" type="number" min="0" step="0.01" placeholder="Amount" value="${l.amount === '' ? '' : +l.amount}"></div></div>`).join('');
+  const body = `${opts.intro ? `<p class="small text-muted">${opts.intro}</p>` : ''}
+    <h6>Fund categories (preset amounts)</h6>${cats}
+    <h6 class="mt-3">Other expense categories (optional)</h6>${rows}
+    <div class="mt-2"><label class="form-label small">Notes</label><input class="form-control form-control-sm" name="notes" maxlength="255" value="${UI.esc(opts.notes || '')}"></div>
+    <div class="fs-6 mt-3 text-end">Total requested fund: <b id="fundTotal">₱0.00</b></div>`;
+  UI.modal(opts.title, body, async (d, form) => {
+    const categories = [...form.querySelectorAll('.fund-cat:checked')].map(c => c.dataset.name);
+    const extraLines = [...form.querySelectorAll('.fund-extra')].map(r => { const [n, a] = r.querySelectorAll('input'); return { name: n.value.trim(), amount: a.value }; }).filter(x => x.name || x.amount);
+    if (!categories.length && !extraLines.length) throw new Error('Choose at least one fund category.');
+    const r = await App.api(opts.action, { ...opts.payload, categories, extra: extraLines, notes: d.notes || '' });
+    UI.result(r); App.route();
+  }, { submit: 'Submit Fund Request', onShow(w) {
+    const total = () => {
+      let t = 0;
+      w.querySelectorAll('.fund-cat:checked').forEach(c => t += +c.dataset.amount);
+      w.querySelectorAll('.fund-extra').forEach(r => { const a = +r.querySelectorAll('input')[1].value; if (a > 0) t += a; });
+      w.querySelector('#fundTotal').textContent = UI.money(t);
+    };
+    w.addEventListener('input', total); w.addEventListener('change', total); total();
+  } });
+};
 
 /** Print only the given HTML (payslips, deduction forms, invoices). */
 UI.print = (html) => { const a = document.getElementById('printArea'); a.innerHTML = html; window.print(); };

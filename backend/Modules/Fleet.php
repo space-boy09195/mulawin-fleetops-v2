@@ -33,7 +33,7 @@ final class Fleet {
                 'vehicles' => fn() => many($p, "SELECT v.*, d.full_name AS driver_name, h.full_name AS helper_name,
                         DATEDIFF(v.registration_expiry, CURRENT_DATE()) AS registration_days_left,
                         DATEDIFF(v.insurance_expiry, CURRENT_DATE()) AS insurance_days_left,
-                        (SELECT t.trip_ref FROM trips t WHERE t.vehicle_id=v.id AND t.status IN ('Assigned','Ready for Dispatch','In Progress','Returned') ORDER BY FIELD(t.status,'In Progress','Returned','Ready for Dispatch','Assigned') LIMIT 1) AS current_trip,
+                        (SELECT t.trip_ref FROM trips t WHERE t.vehicle_id=v.id AND t.status IN ('Pre-Assigned','Ready for Dispatch','Dispatched','On Hold - Incident Reported','In Transit','Returned') ORDER BY FIELD(t.status,'Dispatched','On Hold - Incident Reported','In Transit','Returned','Ready for Dispatch','Pre-Assigned') LIMIT 1) AS current_trip,
                         (SELECT m.expected_completion FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.status NOT IN ('Completed','Cancelled') ORDER BY m.id DESC LIMIT 1) AS expected_available,
                         (SELECT m.description FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.status NOT IN ('Completed','Cancelled') ORDER BY m.id DESC LIMIT 1) AS open_job
                     FROM vehicles v
@@ -193,7 +193,7 @@ final class Fleet {
         if ($row['person_type'] === 'Driver') must($row['license_expiry'] !== null, 'Driver license expiry date is required for drivers.');
         return transaction(function (PDO $p) use ($u, $id, $row) {
             if ($row['employment_status'] !== 'Active' && $id) {
-                $busy = one($p, "SELECT trip_ref FROM trips WHERE (driver_id=? OR driver2_id=? OR helper_id=?) AND status IN ('Assigned','Ready for Dispatch','In Progress','Returned') LIMIT 1", [$id, $id, $id]);
+                $busy = one($p, "SELECT trip_ref FROM trips WHERE (driver_id=? OR driver2_id=? OR helper_id=?) AND status IN ('Pre-Assigned','Ready for Dispatch','Dispatched','On Hold - Incident Reported','In Transit','Returned','For Reschedule') LIMIT 1", [$id, $id, $id]);
                 must(!$busy, 'This person is assigned to active trip ' . ($busy['trip_ref'] ?? '') . '.', 409);
             }
             if ($id) {

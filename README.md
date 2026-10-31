@@ -13,7 +13,7 @@ Ang Mulawin FleetOps (Fleet Management System V2) ay web-based na system para sa
 | Uri | Web application na tumatakbo sa browser (desktop at mobile) |
 | Users | 10 roles: Admin, Operations Head, Car Carrier Dispatcher, Container / Wing Van Dispatcher, Motorpool, Purchasing, Finance, Billing, Payroll, Audit |
 | Truck types | Car Carrier, Container, Wing Van |
-| Pangunahing source | R-P-Mulawin-Trucking Trucking Management System PDF (workflow at roles) |
+| Pangunahing source | R-P-Mulawin-Trucking Trucking Management System PDF (workflow at roles); ang Scenario A, B at C ay galing sa updated na bersyon 2 |
 | Source ng formula | Dummy Computation for Billing PL.xlsx, DRIVERS PAYROLL 1.xlsx, CAR CARRIER at CONTAINER MONITORING 2026 |
 | Base code | Repo na mulawin\_fleetops (branch system-hardening), inayos ayon sa structure ng RP\_Mulawin\_FMS\_V2 zip |
 
@@ -82,10 +82,10 @@ May 11 backend modules at 22 pages. Bawat page ay hawak ng isang backend module 
 | --- | --- | --- | --- |
 | Analytics | Dashboard, Reports & Analytics | dashboard.js, reports.js | Dashboard bawat role, reports na may filter (petsa, truck type, truck, driver, dispatcher, client, status) |
 | Fleet | Fleet Status & Trucks, Drivers, Helpers & Staff | fleet.js | Trucks, status history, crew, availability, pay info |
-| Trips | Dispatch Board, Trip Records & Waybills, Incidents | trips.js | Trip request (Scenario A at B), auto-assign, checklist, clearance, dispatch, updates, incidents, waybill, second attempt |
-| Maintenance | Maintenance | maintenance.js | Repair jobs, PM ayon sa km, schedules, parts used, gastos |
+| Trips | Dispatch Board, Trip Records & Waybills, Incidents | trips.js | Trip request (Scenario A at B), auto-assign, checklist, dispatch validation, updates, incident report, resume, reschedule at redispatch (Second Attempt), waybill |
+| Maintenance | Maintenance | maintenance.js | Incident assessment (Minor o Major), repair jobs, PM ayon sa km, schedules, parts used, gastos |
 | Purchasing | Parts Inventory, Purchasing | purchasing.js | Parts, suppliers, parts requests, purchase request, PO, receiving, stock movement |
-| Funds | Trip Funds & Allowances | finance.js | Fund request, approval, process, release, liquidation |
+| Funds | Trip Funds & Allowances | finance.js | Fund request ng dispatcher (preset categories), Ops Head approval, revise at resubmit, release, liquidation |
 | Finance | Finance & Payables | finance.js | Expenses, payables, disbursements, vouchers, cash advance, budgets, payroll disbursement, cash flow |
 | Billing | Billing & Collections, Clients, Routes & Rates | billing.js | Clients, routes, rates, invoices, collections, receivables |
 | Payroll | Payroll, Attendance, Cash Advance & Balances | payroll.js | Trip pay rates, attendance, payroll periods, payslips, deductions, employee ledgers |
@@ -121,6 +121,8 @@ Mahahalagang disenyo:
 - **History:** may sariling log ang trip status (trip\_events), truck status (vehicle\_status\_log), stock (stock\_movements) at lahat ng ginawa ng users (audit\_events).
 - **Reference numbers:** kusang ginagawa ng system ang numero na may prefix at taon: TRP (trip), JOB (maintenance job), PR (purchase request), PO (purchase order), PV (payment voucher). Halimbawa: TRP-2026-0001.
 
+Mga status ayon sa bagong PDF. Trip: Pending Review, Awaiting Resources, Pre-Assigned, Ready for Dispatch, Dispatched, On Hold - Incident Reported, In Transit, For Reschedule, Returned, Completed, Cancelled, Rejected. Fund request: Pending Approval, Ready for Release, Released, Completed, Rejected, Cancelled. Incident: Reported, Under Repair, Repaired - Cleared to Continue, For Reschedule, Resolved.
+
 ## Roles at access
 
 May 10 roles ayon sa "User Roles and Access Requirements" ng FMS PDF. Ang listahan ng pages bawat role ay nasa backend/Core/Access.php, at sinusuri ulit ng bawat module ang role bago mag-save.
@@ -144,17 +146,20 @@ Ang buong detalye ng bawat role ay nasa hiwalay na doc: [Mulawin FleetOps User G
 
 Lahat ng formula ay galing sa Excel files at sa FMS PDF, at pwedeng baguhin sa Formula Settings page nang walang coding. Ang default values ay nasa config/formulas.php.
 
-### Trip fund at P&L per trip
+### Fund request at P&L per trip
 
 | Computation | Formula | Source |
 | --- | --- | --- |
-| Fuel | (total km ÷ 4 km/L) × ₱100 bawat litro | Dummy Computation for Billing PL |
-| RFID / Toll | Toll ng route | Billing PL |
-| Trip fund (allowance) | Fuel + RFID / Toll | Billing PL |
+| Fund request | Kabuuan ng piniling preset categories + dagdag na linya ng dispatcher | FMS PDF v2 Scenario B step 4 |
+| Preset categories | Forklift Operator ₱100, Checker ₱100, Passway ₱200, Driver Meal Allowance ₱300, Helper Meal Allowance ₱200 | FMS PDF v2 Scenario B step 4 |
+| Fuel (P&L lang) | (total km ÷ 4 km/L) × ₱100 bawat litro | Dummy Computation for Billing PL |
+| RFID / Toll (P&L lang) | Toll ng route | Billing PL |
 | Misc. Expense Logistics | 3% ng client rate | Billing PL G28 |
 | Misc. Expense PDI | 5% ng client rate | Billing PL G29 |
 | Salaries Admin, Logistics, PDI | ₱769.23, ₱1,500, ₱2,307.69 bawat trip (dummy values) | Billing PL G31 hanggang G33 |
 | Net income per trip | Client rate − kabuuang expense | Billing PL |
+
+Wala na ang fuel at toll sa fund request; ginagamit na lang ang mga ito sa projected P&L.
 
 Halimbawa mula sa Excel: 143 km, toll ₱651, rate ₱15,000, net income ₱4,997.08. Ito rin ang lumalabas sa system.
 
@@ -176,7 +181,7 @@ Halimbawa mula sa Excel: 143 km, toll ₱651, rate ₱15,000, net income ₱4,99
 
 | Setting | Default | Source |
 | --- | --- | --- |
-| Fund approval limit ng Operations Head | ₱15,000 (lagpas: Admin) | FMS PDF p.13 |
+| Fund approval | Operations Head, kahit magkano (inalis ang ₱15,000 limit) | FMS PDF v2; utos ng kumpanya |
 | Purchase approval limit ng Finance | ₱10,000 (lagpas: Admin) | FMS PDF p.17 |
 | Preventive maintenance | Bawat 10,000 km | FMS PDF p.18 |
 | Minimum na tagal ng checklist | 15 minuto | FMS PDF p.6 |
@@ -248,42 +253,43 @@ Hindi kasama sa GitHub ang .env, storage/private at storage/backups (naka-.gitig
 
 ## Testing
 
-Lahat ng test ay PASS noong Oktubre 31, 2026, sa bagong empty database. Environment: Ubuntu 24.04, PHP 8.3.6, MariaDB 10.11.14, Apache 2.4 at Chromium. Ang buong listahan ay nasa docs/TEST\_REPORT.md.
+Lahat ng test ay PASS noong Oktubre 31, 2026, pagkatapos ng flow update mula sa FMS PDF bersyon 2, sa bagong empty database. Environment: Ubuntu 24.04, PHP 8.3.6, MariaDB 10.11.14 at Chromium. Ang buong listahan ay nasa docs/TEST\_REPORT.md.
 
 | Test | Ano ang sinuri | Resulta |
 | --- | --- | --- |
 | Syntax check | Bawat PHP at JS file | PASS |
 | Preflight | PHP extensions, folders, lahat ng module nagloload, lahat ng tables | PASS |
-| Formula test (11 checks) | Resulta ng system laban sa cells ng Billing P&L at DRIVERS PAYROLL | PASS |
-| End-to-end workflow (120+ checks) | Buong daloy gamit ang lahat ng 10 roles | PASS |
-| Trip at fund | Scenario A at B, fund ₱4,226 (143 km), approval ayon sa limit | PASS |
-| Checklist at dispatch | 57 items, NOT OK humaharang, walang dispatch kapag walang clearance o release | PASS |
-| Incidents at PM | Minor at major, second attempt, PM sa 10,000 km | PASS |
-| Purchasing | Approval ayon sa limit, budget check, stock in at out | PASS |
-| Billing | Due date, hindi ma-bill nang dalawang beses, partial payment, bawal sobra ang bayad | PASS |
-| Payroll | Sample na net pay ₱2,581.25, finalize, reopen, disburse | PASS |
-| Formula Settings | Bagong value ginagamit sa bagong record, hindi nagbabago ang luma | PASS |
-| Documents at backup | Upload, download, harang ayon sa role, backup create at download | PASS |
+| Formula test (15 checks) | Billing P&L, fund categories at DRIVERS PAYROLL laban sa Excel at PDF | PASS |
+| End-to-end workflow (191 checks) | Buong daloy gamit ang lahat ng 10 roles | PASS |
+| Scenario A | Ops Head create trip, Pre-Assigned, walang automatic fund | PASS |
+| Fund request | Dispatcher lang, preset + dagdag (₱550), Ops Head lang ang approve, Ready for Release, release bago ang checklist | PASS |
+| Scenario B | Pending Review, confirm, reject at revise ng fund (₱20,900, Ops Head pa rin) | PASS |
+| Dispatch validation | Hindi makaka-dispatch hangga't hindi Ready for Dispatch at Released; walang clearance | PASS |
+| Scenario C.1 (minor) | On Hold, assess, Repaired - Cleared to Continue, Resume, In Transit, attempt 1 pa rin | PASS |
+| Scenario C.2 (major) | For Reschedule, Under Maintenance, repair, Reschedule, checklist ulit, Confirm Redispatch = Second Attempt | PASS |
+| Preventive maintenance | PM job sa 10,000 km, Under Maintenance pagkatapos ng trip, reset ng km | PASS |
+| Purchasing, billing, payroll, documents, backup | Hindi nagbago ang daloy | PASS |
+| Formula Settings | Fixed amount lang sa fund categories; bagong preset para sa bagong request, hindi nagbabago ang luma | PASS |
 | Browser test | Bawat page ng bawat role, walang JavaScript error | PASS |
-| Module isolation | Sirang Payroll module o JS: Payroll lang ang apektado, gumagana ang Trips, Billing at Dashboard | PASS |
-| Apache security | .env, backend, config, database, docs, storage at README.md ay 403 | PASS |
+| UI click-through | Fund request form (live total), approve, release, checklist, disabled tapos enabled Confirm Dispatch, incident, assess, confirm repair, resume | PASS |
+| Module isolation | Sirang Funds module: Funds lang ang apektado, gumagana ang Trips at Dashboard | PASS |
 | Password | test1234 tinatanggap, 7 characters tinatanggihan | PASS |
 
 Hindi pa na-test: XAMPP sa Windows, Hostinger, maraming sabay-sabay na users, malalim na test sa mobile phones, at pag-print sa totoong printer.
 
 ## Mga limitasyon at hinihintay pang kumpirmasyon
 
-May 16 na bagay na kulang ang detalye sa source materials. Ginamit muna ang pinakamalapit na patakaran mula sa PDF, Excel o repo, at may TODO comment sa code. Ang buong listahan ay nasa docs/PENDING\_COMPANY\_CONFIRMATION.md.
+Ang C02, C03 at C04 ay nasagot na ng bagong PDF at ng kumpanya. May mga natitira at bagong tanong; ginamit muna ang pinakamalapit na patakaran mula sa PDF, Excel o dating system, at may comment sa code. Ang buong listahan ay nasa docs/PENDING\_COMPANY\_CONFIRMATION.md.
 
 | Code | Tanong sa kumpanya | Ginamit muna |
 | --- | --- | --- |
 | C01 | Patakaran sa pagpili ng truck, driver at helper sa auto-assign | Parehong truck type, walang bukas na repair, walang ibang trip sa araw na iyon, may patas na ikot |
-| C02 | Eksaktong formula ng trip allowance | Fuel + RFID / toll mula sa Billing P&L |
-| C03 | Alin ang mauuna: Finance release o Ops Head clearance | Kailangan pareho, kahit alin ang mauna |
-| C04 | Para sa trip fund lang ba ang ₱15,000 limit | Para sa trip fund |
+| C02 | Fund request categories | **Nasagot:** preset categories ng PDF v2; inalis ang fuel at toll |
+| C03 | Finance release at Ops Head clearance | **Nasagot:** walang clearance; release kahit bago ang checklist |
+| C04 | ₱15,000 limit | **Nasagot:** inalis; Ops Head ang nag-a-approve ng lahat |
 | C05 | Budget period at paano dinadagdagan | Isang active budget bawat category |
-| C06 | Allowed na NOT OK items, pirma, 15 minutong minimum | Lahat ng 57 items kailangan OK bago umalis |
-| C07 | Second attempt: bagong allowance at approval? | Gamit pa rin ang unang fund; bagong checklist at clearance |
+| C06 | Allowed na NOT OK items, pirma, 15 minutong minimum | Lahat ng 57 items kailangan OK bago maging Ready for Dispatch |
+| C07 | Fund sa redispatch | Optional; kung may request, dapat Released |
 | C08 | PM interval at reset bawat uri ng maintenance | 10,000 km, nire-reset pagkatapos ng PM |
 | C09 | Bilang ng units sa car carrier | 5 bawat trip, pwedeng palitan |
 | C10 | Tax, itsura ng official invoice, simula ng payment terms | Due date = invoice date + terms ng client |
@@ -291,8 +297,12 @@ May 16 na bagay na kulang ang detalye sa source materials. Ginamit muna ang pina
 | C12 | Retention ng documents at iskedyul ng paalala | Paalala 30 araw bago mag-expire |
 | C13 | Buong access matrix | Ayon sa User Roles ng PDF |
 | C14 | Payroll: trip pay bawat destination, fixed deductions, bayad sa VL at SIL | Formula mula sa DRIVERS PAYROLL 2026 |
-| C15 | Walang laman ang "Billing and Account Receivable" sa PDF p.18 | Ginamit ang Section II.H |
+| C15 | Walang laman ang "Billing and Account Receivable" sa PDF | Ginamit ang Section II.H ng dating PDF |
 | C16 | Hostinger plan, PHP version, upload limit, cron | Na-test lang sa local |
+| C17 | Pwede bang i-reject ng Ops Head ang delivery request (Scenario B)? | Oo, may dahilan (galing sa dating system) |
+| C18 | Kailan dapat tapos ang client steps ng container at wing van? | Bago ang pre-dispatch checklist |
+| C19 | Liquidation ng na-release na fund | Finance ang nagtatala (galing sa dating system) |
+| C20 | Kapag walang bakanteng truck o crew sa auto-assign | Awaiting Resources, Try auto-assign again o Assign manually |
 
 ### Wala pa sa system
 

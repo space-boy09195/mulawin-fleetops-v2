@@ -30,6 +30,18 @@ Fresh empty database imported from `database/schema.sql` + `database/extension.s
 | UI click-through: Create trip, Fund request form (live total ₱425), approve, Confirm release, checklist, disabled then enabled Confirm Dispatch, incident form, Assess damage, Confirm repair, Resume trip | PASS |
 | Module isolation: broken `Funds.php` → funds page 503, Trips / Dashboard still 200 | PASS |
 
+### Re-test 2026-11-01 (after grouping modules into department folders)
+
+| Test | Result |
+|---|---|
+| `php -l` on every PHP file; `node --check` on every JS file | PASS |
+| `scripts/preflight.php` (every module loads from its department folder) | PASS |
+| `tests/formula_test.php` on a fresh database — 15 checks | PASS |
+| `tests/e2e_workflow.py` — 191 checks, 0 failures | PASS |
+| Every page for every role in the browser | PASS |
+| UI click-through (create trip to resume trip) | PASS |
+| Module isolation: broken `Accounting/Payroll.php` → payroll 503; trips, billing, dashboard still 200 | PASS |
+
 Notes:
 - `tests/formula_test.php` compares with the Excel defaults, so run it on a database where Formula Settings were not changed.
 - The Apache `.htaccess` rules were not changed in this update (last Apache test: PASS).

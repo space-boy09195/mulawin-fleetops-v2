@@ -6,7 +6,7 @@
    - App.api(name, d)   POST to backend (Module.action)
    - UI.*               tables, forms, modals, badges, charts, CSV
    MODULE ISOLATION: every page loads its own data. If a module file
-   (assets/js/modules/*.js) or its backend fails, only that page shows
+   (assets/js/modules/<department>/*.js) or its backend fails, only that page shows
    an error; the sidebar and the other pages keep working.
    ===================================================================== */
 'use strict';

@@ -101,7 +101,9 @@ if (isset($_GET['api'])) {
 
 // ---------------- HTML shell ----------------
 // Each module script is separate: if one file fails, the other pages still work.
-$jsModules = ['dashboard', 'fleet', 'trips', 'maintenance', 'purchasing', 'finance', 'billing', 'payroll', 'documents', 'reports', 'admin'];
+// Screen files naka-grupo ayon sa department (public/assets/js/modules/<department>/<file>.js).
+$jsModules = ['general/dashboard', 'operations/fleet', 'operations/trips', 'maintenance/maintenance', 'maintenance/purchasing',
+              'accounting/finance', 'accounting/billing', 'accounting/payroll', 'general/documents', 'general/reports', 'administration/admin'];
 $v = static fn(string $f): string => is_file(__DIR__ . '/' . $f) ? (string)filemtime(__DIR__ . '/' . $f) : '1';
 ?><!doctype html>
 <html lang="en">

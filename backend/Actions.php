@@ -7,7 +7,7 @@
  *
  *  MODULE ISOLATION:
  *  A module file is loaded only when it is needed, inside try/catch.
- *  If backend/Modules/Payroll.php has an error, only Payroll actions
+ *  If backend/Modules/Accounting/Payroll.php has an error, only Payroll actions
  *  fail with "module unavailable"; Trips, Billing and the rest keep
  *  working. (PHP syntax errors in a required file are catchable as
  *  ParseError, so even a broken file does not stop the others.)
@@ -19,16 +19,29 @@ require_once __DIR__ . '/bootstrap.php';
 final class ModuleUnavailable extends RuntimeException {}
 
 final class Actions {
-    /** Modules that exist. Add a new module here and create backend/Modules/<Name>.php */
-    public const MODULES = ['Fleet', 'Trips', 'Funds', 'Maintenance', 'Purchasing', 'Finance', 'Billing',
-                            'Payroll', 'Documents', 'Analytics', 'Admin'];
+    /**
+     * Modules naka-grupo ayon sa DEPARTMENT (folder sa backend/Modules/<Department>/).
+     *   Operations     : Fleet, Trips (kasama ang Inspections/Checklist.php)
+     *   Maintenance    : Maintenance, Purchasing (truck parts, ayon sa PDF Maintenance Module)
+     *   Accounting     : Funds, Finance, Billing, Payroll
+     *   General        : Analytics (dashboards at reports), Documents
+     *   Administration : Admin (users, formula settings, activity log, backup)
+     * Para magdagdag ng module: idagdag dito at gumawa ng backend/Modules/<Department>/<Name>.php
+     */
+    public const MODULES = [
+        'Fleet' => 'Operations', 'Trips' => 'Operations',
+        'Maintenance' => 'Maintenance', 'Purchasing' => 'Maintenance',
+        'Funds' => 'Accounting', 'Finance' => 'Accounting', 'Billing' => 'Accounting', 'Payroll' => 'Accounting',
+        'Analytics' => 'General', 'Documents' => 'General',
+        'Admin' => 'Administration',
+    ];
 
-    /** Loads backend/Modules/<Name>.php safely and returns the class name. */
+    /** Loads backend/Modules/<Department>/<Name>.php safely and returns the class name. */
     public static function load(string $module): string {
-        if (!in_array($module, self::MODULES, true)) throw new BusinessRuleException('Unknown module.', 404);
+        if (!isset(self::MODULES[$module])) throw new BusinessRuleException('Unknown module.', 404);
         if (class_exists($module, false)) return $module;
         try {
-            require_once __DIR__ . '/Modules/' . $module . '.php';
+            require_once __DIR__ . '/Modules/' . self::MODULES[$module] . '/' . $module . '.php';
         } catch (Throwable $e) {
             error_log("Module $module failed to load: " . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             throw new ModuleUnavailable("The $module module is temporarily unavailable. Other modules are still working.");

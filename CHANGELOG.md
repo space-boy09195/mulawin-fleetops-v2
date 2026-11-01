@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-11-01 (modules grouped by department)
+- Backend modules moved to department folders: `backend/Modules/Operations/` (Fleet, Trips, Inspections),
+  `Maintenance/` (Maintenance, Purchasing), `Accounting/` (Funds, Finance, Billing, Payroll),
+  `General/` (Analytics, Documents), `Administration/` (Admin).
+- Screen files moved the same way: `public/assets/js/modules/<department>/<file>.js`.
+- `Actions::MODULES` is now a map (module => department); `Access.php`, `public/index.php`, `scripts/preflight.php`
+  and the storage paths of Admin and Documents were updated. The sidebar was NOT changed.
+- File header comments, README, docs/SOURCE_TRACEABILITY.csv and TEST_REPORT use the new paths.
+- No change to the workflow, database or formulas.
+- New guides: one user guide per department (Operations, Maintenance, Accounting), one for Admin and Audit,
+  and a full Technical Documentation (architecture, API, database, data sources, security, deployment).
+
 ## 2026-10-31 (flow update: FMS PDF version 2)
 - Trip statuses follow the new PDF: Pending Review, Pre-Assigned, Ready for Dispatch, Dispatched,
   On Hold - Incident Reported, In Transit, For Reschedule, Returned, Completed (plus Awaiting Resources, Cancelled, Rejected).

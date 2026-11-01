@@ -20,7 +20,7 @@ $checks = [
 foreach ($checks as $k => $v) { echo ($v ? 'PASS' : 'FAIL') . ": $k\n"; if (!$v) $ready = false; }
 // Every module file must load on its own (module isolation check).
 require_once dirname(__DIR__) . '/backend/Actions.php';
-foreach (Actions::MODULES as $m) {
+foreach (array_keys(Actions::MODULES) as $m) {
     try { Actions::load($m); echo "PASS: module $m\n"; } catch (Throwable $e) { echo "FAIL: module $m (" . $e->getMessage() . ")\n"; $ready = false; }
 }
 if (extension_loaded('pdo_mysql')) {

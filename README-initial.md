@@ -1,7 +1,8 @@
 # R.P. Mulawin Trucking — Fleet Management System V2 (Mulawin FleetOps)
 
 Aligned build: the **folder structure of the V2 zip**, the **design of the `mulawin_fleetops` repo** (green sidebar, gold accent, Bootstrap 5, Chart.js),
-the **workflow of the FMS PDF** (`R-P-Mulawin-Trucking_-Trucking-Manangement-System.pdf`), and the **formulas of the company Excel files**
+the **workflow of the FMS PDF** (`R-P-Mulawin-Trucking_-Trucking-Manangement-System.pdf`; Scenario A, B at C ay galing sa
+updated na bersyon 2 ng PDF), and the **formulas of the company Excel files**
 (Billing P&L, Drivers Payroll, Car Carrier and Container Monitoring).
 
 > Walang sample na kumpanya data. Bagong EMPTY database ang gamit. Ang Admin ang maglalagay ng totoong users, clients, trucks at crew.
@@ -51,22 +52,30 @@ the **workflow of the FMS PDF** (`R-P-Mulawin-Trucking_-Trucking-Manangement-Sys
 (Day/Night shift = same team), `motorpool`, `purchasing`, `finance`, `billing`, `payroll`, `audit` (read-only).
 Ang page access ay nasa `backend/Core/Access.php`; bawat module ay nagche-check ulit ng role bago mag-save.
 
-## C. Main workflow (FMS PDF pp.16-18)
+## C. Main workflow (bagong FMS PDF: Scenario A, B at C)
 
 ```
-Scenario A: Client → Operations Head encodes (truck type = dispatcher type)
-Scenario B: Client → Dispatcher encodes → Operations Head sets truck type / details (approval)
-   → SYSTEM auto-assigns truck, driver (+ driver 2 for car carrier), helper (container / wing van)
-   → SYSTEM computes the trip allowance (Formula Settings: fuel + RFID/toll by default)
-   → Fund approval: Operations Head if ≤ ₱15,000, Admin if > ₱15,000 (PDF p.13)
-   → Finance processes ("approved pero pending") → Pending Release
-   → Dispatcher: Start checklist (min. 15 min) → 57-item pre-departure checklist all OK → Ready for Dispatch
-   → Fund becomes Ready for Release → Finance releases (voucher, disbursement, expense)
-   → Operations Head departure clearance → Dispatcher confirms dispatch → Fund "Completed"
+Scenario A: Client → Operations Head gumagawa ng trip (truck type = dispatcher type)
+            → SYSTEM auto-assigns truck, driver (+ driver 2 for car carrier), helper → "Pre-Assigned"
+Scenario B: Client → Dispatcher gumagawa ng delivery request → "Pending Review"
+            → Operations Head nire-review at kinukumpleto ang trip details (confirm)
+            → SYSTEM auto-assigns → "Pre-Assigned"
+Pareho sa A at B (sabay pwedeng gawin ang fund at ang checklist):
+   → Dispatcher Fund Request: pipili ng preset categories (Forklift Operator ₱100, Checker ₱100,
+     Passway ₱200, Driver Meal ₱300, Helper Meal ₱200) + pwedeng magdagdag; system ang nagko-compute ng total
+   → Operations Head Fund Approval (lahat ng halaga): Approve = "Ready for Release" (lalabas sa Finance);
+     Reject = babalik sa Dispatcher para i-revise at i-resubmit
+   → Finance Confirm Release (pwede kahit hindi pa tapos ang checklist) → fund "Released"
+   → Dispatcher: Start checklist (min. 15 min) → 57-item pre-dispatch checklist all OK → trip "Ready for Dispatch"
+   → SYSTEM dispatch validation: Confirm Dispatch enabled lang kapag fund Released AT trip Ready for Dispatch
+   → Dispatcher Confirm Dispatch → trip "Dispatched", fund "Completed"
    → Progress / delay (with cause) / waybill → Arrival checklist (odometer) → Submit completed trip
-Container: confirm nomination/booking + pre-advice before dispatch. Wing Van: confirm with client + give truck details.
-Incident: Minor = roadside repair job, trip continues. Major = trip "Rescheduled", truck Under Maintenance;
-          Motorpool completes repair → truck Available → dispatcher re-dispatches (system sets attempt #2).
+Container: confirm nomination/booking + pre-advice bago ang checklist. Wing Van: confirm with client + give truck details.
+Scenario C (truck breakdown): Dispatcher Incident Report → trip "On Hold - Incident Reported" → Maintenance assesses:
+   Minor: mechanic sa lokasyon → Maintenance "Repaired - Cleared to Continue" → Dispatcher Resume Trip → "In Transit"
+          (hindi Second Attempt)
+   Major: truck "Under Maintenance", trip "For Reschedule" → repair → truck Available → Dispatcher Reschedule Trip
+          → pre-dispatch checklist ulit (fund kung kailangan) → Confirm Redispatch = Second Attempt
 Preventive maintenance: km traveled (odometer out/in) is added; at 10,000 km (setting) the system creates the PM job.
 Purchasing: Motorpool parts request → Purchasing releases from stock, or purchase request
           (≤ ₱10,000 Finance, > ₱10,000 Admin) → system budget check (insufficient = rejected by system)
@@ -84,13 +93,21 @@ backend/bootstrap.php          shared: .env, session, database, input checks, au
 backend/Actions.php            loads ONE module per request inside try/catch (module isolation)
 backend/Data.php               session info (user, sidebar, notifications)
 backend/Core/                  shared rules: Settings (formula engine), Access (pages/roles),
-                               FleetState (truck status), TripFunds (allowance), Money, Notify
-backend/Modules/               Fleet, Trips, Funds, Maintenance, Purchasing, Finance, Billing,
-                               Payroll, Documents, Analytics (dashboards/reports), Admin
-backend/Modules/Inspections/   57-item checklist from the company scans
+                               FleetState (truck status), TripFunds (fund request categories), Money, Notify
+backend/Modules/<Department>/  modules naka-grupo ayon sa department (folder lang; hindi binago ang sidebar):
+  Operations/                  Fleet.php, Trips.php, Inspections/Checklist.php (57-item checklist ng kumpanya)
+  Maintenance/                 Maintenance.php, Purchasing.php (truck parts)
+  Accounting/                  Funds.php, Finance.php, Billing.php, Payroll.php
+  General/                     Analytics.php (dashboards/reports), Documents.php
+  Administration/              Admin.php (users, formula settings, activity log, backup)
 public/index.php               the only browser entry point (HTML shell + JSON API)
 public/assets/js/core.js       shell, router, tables, forms, charts
-public/assets/js/modules/      one screen file per module
+public/assets/js/modules/<department>/   screen files, parehong grupo:
+  operations/                  fleet.js, trips.js
+  maintenance/                 maintenance.js, purchasing.js
+  accounting/                  finance.js (Trip Funds at Finance), billing.js, payroll.js
+  general/                     dashboard.js, documents.js, reports.js
+  administration/              admin.js
 public/assets/css/             layout.css + login.css (from the repo) and app.css
 database/schema.sql            core tables          database/extension.sql   module tables
 scripts/                       create_user.php, preflight.php
@@ -103,6 +120,13 @@ docs/                          traceability, pending decisions, formula guide, t
 Kapag may error ang isang module (kahit syntax error), ang page lang na iyon ang may mensaheng
 "temporarily unavailable"; gumagana pa rin ang ibang modules. Ito ay na-test (tingnan `docs/TEST_REPORT.md`).
 Kapag patay ang buong database, lahat ng database pages ay hindi gagana (normal ito).
+
+**Pagdagdag ng module:** idagdag sa `Actions::MODULES` (pangalan => department), gumawa ng
+`backend/Modules/<Department>/<Name>.php`, idagdag ang pages sa `backend/Core/Access.php`, at kung may bagong
+screen file, idagdag sa `$jsModules` ng `public/index.php`.
+
+**Mga gabay:** may hiwalay na user guide bawat department (Operations, Maintenance, Accounting) at para sa
+Admin at Audit, at isang Technical Documentation (architecture, API, database, data sources, security).
 
 ## E. Pagbago ng formula (kahit hindi marunong mag-code)
 

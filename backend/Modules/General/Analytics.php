@@ -59,6 +59,10 @@ final class Analytics {
     private static function pairs(array $rows, string $label, string $value): array {
         return ['labels' => array_column($rows, $label), 'values' => array_map('floatval', array_column($rows, $value))];
     }
+    /** Naglalagay ng "group" sa cards para may heading bawat grupo sa dashboard (Trips, Fleet, Pera). */
+    private static function group(string $group, array $cards): array {
+        return array_map(fn($c) => $c + ['group' => $group], $cards);
+    }
     private static function chart(string $title, string $type, array $labels, array $datasets, string $how = ''): array {
         return compact('title', 'type', 'labels', 'datasets', 'how');
     }
@@ -146,18 +150,20 @@ final class Analytics {
         return [
             'title' => 'Management Dashboard', 'subtitle' => 'Company-wide summary for ' . date('F Y'),
             'alerts' => $alerts,
-            'cards' => [
+            'cards' => array_merge(self::group('Trips', [
                 self::card('Trips this month', (int)$tripsMonth, 'bi-truck', 'green', 'trip_records', $change === null ? 'no data last month' : ($change >= 0 ? '+' : '') . $change . '% vs last month'),
                 self::card('Completed (all time)', $status['Completed'] ?? 0, 'bi-check2-circle', 'green', 'trip_records'),
                 self::card('Ongoing trips', $ongoing, 'bi-signpost-split', 'blue', 'trips'),
                 self::card('Pending / scheduled trips', $pending, 'bi-hourglass-split', 'amber', 'trips'),
+            ]), self::group('Fleet', [
                 self::card('Available trucks', $fleet['Available'] . ' / ' . array_sum($fleet), 'bi-truck-front', 'green', 'fleet'),
                 self::card('Under maintenance', $fleet['Under Maintenance'], 'bi-tools', 'red', 'maintenance'),
+            ]), self::group('Pera', [
                 self::card('Billed this month', $billedMonth, 'bi-receipt', 'blue', 'billing', '', 'money'),
                 self::card('Collected this month', $collectedMonth, 'bi-cash-coin', 'green', 'billing', '', 'money'),
                 self::card('Outstanding receivables', self::outstanding($p), 'bi-exclamation-circle', 'amber', 'billing', '', 'money'),
                 self::card('Expenses this month', $expMonth, 'bi-wallet2', 'red', 'finance', '', 'money'),
-            ],
+            ])),
             'charts' => [
                 self::chart('Completed trips per month', 'bar', $six['labels'], [['label' => 'Completed trips', 'data' => $six['trips']]], 'COUNT of trips with status Completed, grouped by completion month.'),
                 self::chart('Billed vs collected vs expenses', 'line', $six['labels'], [['label' => 'Billed', 'data' => $six['billed']], ['label' => 'Collected', 'data' => $six['collected']], ['label' => 'Expenses', 'data' => $six['expenses']]], 'Billed = invoice net amounts; Collected = payments received; Expenses = recorded expenses.'),
@@ -196,7 +202,7 @@ final class Analytics {
         return [
             'title' => 'Operations Dashboard', 'subtitle' => 'Trips, fleet and crew today',
             'alerts' => $alerts,
-            'cards' => [
+            'cards' => array_merge(self::group('Trips', [
                 self::card('Pending review', $s['Pending Review'] ?? 0, 'bi-inbox', 'amber', 'trips'),
                 self::card('Pre-assigned / awaiting', self::sumOf($s, ['Pre-Assigned', 'Awaiting Resources']), 'bi-check2-square', 'blue', 'trips'),
                 self::card('Ready for dispatch', $s['Ready for Dispatch'] ?? 0, 'bi-send-check', 'blue', 'trips'),
@@ -204,11 +210,12 @@ final class Analytics {
                 self::card('On hold (incident)', $s['On Hold - Incident Reported'] ?? 0, 'bi-exclamation-triangle', 'red', 'incidents'),
                 self::card('For reschedule', $s['For Reschedule'] ?? 0, 'bi-arrow-repeat', 'red', 'incidents'),
                 self::card('Completed this month', (int)self::val($p, "SELECT COUNT(*) v FROM trips WHERE status='Completed' AND completed_at>=?", [$m0]), 'bi-check2-circle', 'green', 'trip_records'),
+            ]), self::group('Fleet at crew', [
                 self::card('Available trucks', $fleet['Available'], 'bi-truck-front', 'green', 'fleet'),
                 self::card('Unavailable / maintenance', $fleet['Unavailable'] + $fleet['Under Maintenance'], 'bi-tools', 'red', 'fleet'),
                 self::card('Available drivers', $cc['Driver']['Available'] ?? 0, 'bi-person-check', 'green', 'crew'),
                 self::card('Available helpers', $cc['Helper']['Available'] ?? 0, 'bi-people', 'green', 'crew'),
-            ],
+            ])),
             'charts' => [
                 self::chart('Fleet status now', 'doughnut', array_keys($fleet), [['label' => 'Trucks', 'data' => array_values($fleet)]]),
                 self::chart('Trips this month by dispatcher', 'bar', array_column($byDisp, 'name'), [['label' => 'Trips', 'data' => array_map('intval', array_column($byDisp, 'trips'))], ['label' => 'Completed', 'data' => array_map('intval', array_column($byDisp, 'completed'))]]),

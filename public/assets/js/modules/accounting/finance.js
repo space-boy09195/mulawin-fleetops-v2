@@ -107,7 +107,8 @@ App.page('finance', {
     ]);
     document.getElementById('finRange').onsubmit = (ev) => { ev.preventDefault(); ctx.go('finance', UI.formData(ev.target)); };
     const cf = d.cashFlow || [];
-    UI.tabs(ctx.el, [
+    // 8 tabs na naka-grupo sa 3 para hindi masikip: Gastos at Bayarin, Empleyado, Plano.
+    const tabs = [
       ['exp', 'Expenses', () => UI.table([['Date', 'incurred_on', 'date'], ['Category', 'category', 'badge'], ['Amount', 'amount', 'money'], ['Payee', 'payee'], ['Reference', 'reference_number'], ['Trip', 'trip_ref'], ['Truck', 'plate_number'], ['Source', 'source'], ['Description', 'description'], ['By', 'recorded_by_name']], d.expenses, { id: 'exp', title: 'Expenses (fuel, payroll, maintenance, parts and other operating expenses)' })],
       ['ap', 'Accounts payable', () => UI.table([['Supplier / payee', 'supplier', (x, r) => UI.esc(x || r.payee)], ['Description', 'description'], ['Reference', 'reference_number'], ['Amount', 'amount', 'money'], ['Paid', 'paid_amount', 'money'],
         ['Balance', 'amount', (x, r) => UI.money(+r.amount - +r.paid_amount)], ['Due', 'due_on', 'date'], ['Days to due', 'days_to_due', (x, r) => r.status !== 'Paid' && x !== null ? UI.days(x) : '—'], ['Status', 'status', 'badge'], ['Source', 'source']], d.payables, {
@@ -127,6 +128,12 @@ App.page('finance', {
       ['bud', 'Budgets', () => UI.table([['Category', 'category'], ['Budget', 'budget_amount', 'money'], ['Used', 'used_amount', 'money'], ['Remaining', 'budget_amount', (x, r) => UI.money(+r.budget_amount - +r.used_amount)], ['Period', 'period_start', (x, r) => x ? UI.date(x) + ' – ' + UI.date(r.period_end) : '—'], ['Status', 'status', 'badge'], ['Set by', 'set_by_name']], d.budgets, { id: 'buds' })],
       ['cf', 'Cash flow', () => UI.chartHtml({ title: 'Cash in vs cash out per month', type: 'bar', labels: cf.map(r => r.month), datasets: [{ label: 'Cash in (collections)', data: cf.map(r => r.cash_in) }, { label: 'Cash out (disbursements)', data: cf.map(r => r.cash_out) }], how: 'Cash in = collections recorded by Billing; cash out = disbursements recorded by Finance.' }) +
         UI.table([['Month', 'month'], ['Cash in', 'cash_in', 'money'], ['Cash out', 'cash_out', 'money'], ['Net', 'net', 'money'], ['Running total', 'running', 'money']], cf, { id: 'cft', title: 'Cash flow summary' })],
-    ]);
+    ];
+    const pick = (...keys) => tabs.filter(t => keys.includes(t[0]));
+    UI.groupTabs(ctx.el, [
+      ['money', '<i class="bi bi-receipt me-1"></i>Gastos at Bayarin', pick('exp', 'ap', 'disb', 'pv')],
+      ['emp', '<i class="bi bi-people me-1"></i>Empleyado', pick('ca', 'pay')],
+      ['plan', '<i class="bi bi-graph-up me-1"></i>Plano', pick('bud', 'cf')],
+    ], { key: 'fin' });
   },
 });

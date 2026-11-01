@@ -121,6 +121,9 @@ Kapag may error ang isang module (kahit syntax error), ang page lang na iyon ang
 "temporarily unavailable"; gumagana pa rin ang ibang modules. Ito ay na-test (tingnan `docs/TEST_REPORT.md`).
 Kapag patay ang buong database, lahat ng database pages ay hindi gagana (normal ito).
 
+**Navigation:** isang sidebar section lang ang bukas, nakadikit ang page header, tabs sa mahahabang page
+(Reports, Formula Settings, Finance), tables na 25 rows bawat page na may Prev at Next. Detalye: CHANGELOG (2026-11-01).
+
 **Pagdagdag ng module:** idagdag sa `Actions::MODULES` (pangalan => department), gumawa ng
 `backend/Modules/<Department>/<Name>.php`, idagdag ang pages sa `backend/Core/Access.php`, at kung may bagong
 screen file, idagdag sa `$jsModules` ng `public/index.php`.

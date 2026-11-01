@@ -149,11 +149,11 @@ Ang screen ay **single-page app**: isang HTML page lang ang nilo-load (`public/i
 | `App.request`, `App.api`, `App.data`, `App.upload` | Lahat ng tawag sa server. Kapag 401, balik sa login. |
 | `App.route`, `App.go` | Router gamit ang URL hash (`#page?x=y`). Pahinang wala sa sidebar ng role ay balik sa Dashboard. |
 | `ctx` ng bawat page | `page`, `query`, `el`, `tools`, `me`, `data`, `reload()`, `go()`, `setQuery()` |
-| `UI.table`, `UI.activate` | Tables na may Search, bilang ng records, **CSV**, "Show more", at action buttons bawat linya |
+| `UI.table`, `UI.activate` | Tables na may Search, bilang ng records, **CSV**, Prev at Next (25 rows bawat page), at action buttons bawat linya |
 | `UI.formModal`, `UI.confirmAction`, `UI.modal` | Mga form at confirm. Pagka-save, toast at reload ng pahina. |
 | `UI.field`, `UI.fields`, `UI.formData` | Mga input: text, number, money, date, select, textarea, checkbox, file at iba pa |
-| `UI.blocks`, `UI.cards`, `UI.chartHtml`, `UI.drawChart` | Dashboard cards, charts at tables mula sa iisang spec ng backend |
-| `UI.tabs` | Tabs sa loob ng pahina (naaalala ang huling tab) |
+| `UI.blocks`, `UI.cards`, `UI.chartHtml`, `UI.drawChart` | Dashboard cards (may grupo kapag may group ang card), charts (maxCharts, ang iba ay nasa Show more) at tables (higit sa isa = iisang card na may pills; walang laman = isang linya) mula sa iisang spec ng backend |
+| `UI.tabs` | Tabs sa loob ng pahina (naaalala ang huling tab). Ang UI.groupTabs ay tabs na may pills sa loob, halimbawa sa Finance at Formula Settings. |
 | `UI.fundForm` | Form ng fund request (categories at total) |
 | `UI.print` | Pag-print ng payslips, vouchers at forms |
 | `UI.csv` | Excel-friendly na CSV (may BOM, at ligtas sa formula injection) |
@@ -181,6 +181,23 @@ App.page('audit_log', {
 ### E. CSS
 
 `layout.css` (sidebar, header, cards), `login.css` (login screen) at `app.css` (tables, badges, forms, print). Kulay: green na sidebar at gold na accent.
+
+### F. Navigation (polish, 2026-11-01)
+
+Para hindi mahaba at hindi nakaka-overwhelm ang mga page. Walang binago sa data, workflow o database.
+
+| Ano | Saan sa code | Paano gumagana |
+| --- | --- | --- |
+| Accordion na sidebar | `App.openSection()` sa `core.js` | Isang section lang ang bukas; ang `route()` ang nagbubukas ng section ng current page |
+| Nakadikit na header at Back to top | `.page-header-sticky`, `#toTop`, `window.onscroll` | Nakadikit ang title at buttons; nawawala ang subtitle habang naka-scroll; lumalabas ang Back to top pagkalipas ng 400px |
+| Compact cards sa work pages | `#pageBody.work-page` sa `app.css` | Lahat ng page maliban sa Dashboard at Reports |
+| Pagination | `UI.drawTable` (`t.page`, `t.limit`) | 25 rows bawat page; Search at CSV ay sakop ang lahat ng rows |
+| Reports tabs at More filters | `general/reports.js` | Tab bawat section ng `Analytics::reports`; ang ibang filters ay nakatago hangga't walang gamit |
+| Dashboard | `general/dashboard.js` (`maxCharts: 2`), `Analytics::group()` | Mga card ng Admin at Ops Head ay may grupo (Trips, Fleet, Pera) |
+| Formula Settings | `administration/admin.js` | Tabs: Values (pill bawat group, editable muna, View only sa huli), Computation lists, Example |
+| Finance & Payables | `accounting/finance.js` | Tabs: Gastos at Bayarin, Empleyado, Plano |
+
+Resulta (pinakamahabang page): Reports 6,949px hanggang 1,454px, Formula Settings 4,806px hanggang 900px, Admin Dashboard 2,706px hanggang 1,557px. Wala nang page na lampas 1,700px sa test data.
 
 ## 5. API reference
 

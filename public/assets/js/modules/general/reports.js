@@ -9,18 +9,24 @@ App.page('reports', {
     const d = ctx.data, f = d.filters || {}, q = { ...d.range, ...ctx.query };
     const opts = (rows, key) => UI.opts(rows, r => r[key]);
     ctx.tools.innerHTML = '<button class="btn btn-sm btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>';
-    ctx.el.innerHTML = `<div class="card mb-3 no-print"><div class="card-body-custom"><form id="repForm">${UI.fields([
+    // Laging kita: period at group by. Ang ibang filters ay nasa "More filters" (bukas kapag may gamit).
+    const more = ['truck_type', 'status', 'client_id', 'vehicle_id', 'driver_id', 'dispatcher_id'].filter(k => ctx.query[k]).length;
+    ctx.el.innerHTML = `<div class="card mb-3 no-print report-filters"><div class="card-body-custom"><form id="repForm"><div class="row g-2 align-items-end">${[
       { name: 'preset', label: 'Quick period', type: 'select', col: 2, options: [['today', 'Today'], ['week', 'This week (Mon-Sun)'], ['month', 'This month'], ['last_month', 'Last month'], ['year', 'This year']], placeholder: 'Custom' },
       { name: 'from', label: 'From', type: 'date', col: 2, value: q.from }, { name: 'to', label: 'To', type: 'date', col: 2, value: q.to },
       { name: 'group', label: 'Group by', type: 'select', col: 2, options: [['day', 'Daily'], ['week', 'Weekly'], ['month', 'Monthly']], value: q.group, placeholder: false },
+    ].map(UI.field).join('')}<div class="col-md-4 d-flex gap-2 flex-wrap"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel"></i> Show report</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="repMore"><i class="bi bi-sliders"></i> More filters${more ? ` (${more})` : ''}</button>
+      <button type="button" class="btn btn-link btn-sm" id="repClear">Clear filters</button></div></div>
+      <div class="row g-2 mt-1" id="repMoreBox" ${more ? '' : 'hidden'}>${[
       { name: 'truck_type', label: 'Truck type', type: 'select', col: 2, options: UI.list(App.me.truckTypes), value: q.truck_type, placeholder: 'All' },
       { name: 'status', label: 'Trip status', type: 'select', col: 2, options: UI.list(['Completed', 'Dispatched', 'In Transit', 'On Hold - Incident Reported', 'For Reschedule', 'Ready for Dispatch', 'Pre-Assigned', 'Pending Review', 'Cancelled']), value: q.status, placeholder: 'All' },
-      { name: 'client_id', label: 'Client', type: 'select', col: 3, options: opts(f.clients, 'name'), value: q.client_id, placeholder: 'All' },
-      { name: 'vehicle_id', label: 'Truck', type: 'select', col: 3, options: opts(f.vehicles, 'plate_number'), value: q.vehicle_id, placeholder: 'All' },
-      { name: 'driver_id', label: 'Driver / helper', type: 'select', col: 3, options: opts(f.crew, 'full_name'), value: q.driver_id, placeholder: 'All' },
-      { name: 'dispatcher_id', label: 'Dispatcher', type: 'select', col: 3, options: opts(f.dispatchers, 'full_name'), value: q.dispatcher_id, placeholder: 'All' },
-    ])}<div class="mt-2"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel"></i> Show report</button>
-      <button type="button" class="btn btn-link btn-sm" id="repClear">Clear filters</button></div></form></div></div><div id="repBody"></div>`;
+      { name: 'client_id', label: 'Client', type: 'select', col: 2, options: opts(f.clients, 'name'), value: q.client_id, placeholder: 'All' },
+      { name: 'vehicle_id', label: 'Truck', type: 'select', col: 2, options: opts(f.vehicles, 'plate_number'), value: q.vehicle_id, placeholder: 'All' },
+      { name: 'driver_id', label: 'Driver / helper', type: 'select', col: 2, options: opts(f.crew, 'full_name'), value: q.driver_id, placeholder: 'All' },
+      { name: 'dispatcher_id', label: 'Dispatcher', type: 'select', col: 2, options: opts(f.dispatchers, 'full_name'), value: q.dispatcher_id, placeholder: 'All' },
+    ].map(UI.field).join('')}</div></form></div></div><div id="repBody"></div>`;
+    document.getElementById('repMore').onclick = () => { const b = document.getElementById('repMoreBox'); b.hidden = !b.hidden; };
     const form = document.getElementById('repForm');
     form.preset.onchange = () => {
       const t = new Date(UI.today()), iso = (x) => { x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
@@ -35,8 +41,11 @@ App.page('reports', {
     form.onsubmit = (e) => { e.preventDefault(); const v = UI.formData(form); delete v.preset; Object.keys(v).forEach(k => v[k] === '' && delete v[k]); ctx.go('reports', v); };
     document.getElementById('repClear').onclick = () => ctx.go('reports', {});
     const body = document.getElementById('repBody');
-    body.innerHTML = `<div class="small text-muted mb-2">Period: <b>${UI.date(d.range.from)}</b> to <b>${UI.date(d.range.to)}</b></div>` +
-      (d.sections || []).map(s => `<div class="section-title"><i class="bi ${s.icon}"></i>${UI.esc(s.title)}</div>${s.note ? `<div class="section-note">${UI.esc(s.note)}</div>` : ''}${UI.blocks(s)}`).join('');
-    UI.activate(body);
+    // Isang tab bawat section (Trips, Fleet, Money, Payroll, Stock ayon sa role) para hindi mahaba ang page.
+    body.innerHTML = `<div class="small text-muted mb-2">Period: <b>${UI.date(d.range.from)}</b> to <b>${UI.date(d.range.to)}</b></div>`;
+    const sections = d.sections || [];
+    if (!sections.length) { body.insertAdjacentHTML('beforeend', '<div class="table-empty">No report sections for your role.</div>'); return; }
+    UI.tabs(body, sections.map((s, i) => [s.title, `<i class="bi ${s.icon} me-1"></i>${UI.esc(s.title)}`,
+      () => `${s.note ? `<div class="section-note mt-0">${UI.esc(s.note)}</div>` : ''}${UI.blocks(s, { key: s.title })}`]));
   },
 });

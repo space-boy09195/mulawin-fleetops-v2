@@ -34,7 +34,7 @@ App.page('audit_log', {
     ctx.el.innerHTML = `<form class="row g-2 align-items-end mb-3" id="alF">${UI.field({ name: 'from', label: 'From', type: 'date', value: q.from, col: 2 })}${UI.field({ name: 'to', label: 'To', type: 'date', value: q.to, col: 2 })}
       ${UI.field({ name: 'area', label: 'Area', type: 'select', options: UI.list(d.areas), value: q.area, placeholder: 'All', col: 3 })}${UI.field({ name: 'q', label: 'Search', value: q.q, col: 3 })}
       <div class="col-md-2"><button class="btn btn-sm btn-primary">Show</button></div></form>` +
-      UI.table([['When', 'created_at', 'datetime'], ['By', 'actor'], ['Role', 'role', (x) => UI.esc(UI.label(x || ''))], ['Area', 'area', 'badge'], ['Record', 'record_ref'], ['Action', 'action'], ['Details', 'details']], d.events, { id: 'alog', limit: 100 });
+      UI.table([['When', 'created_at', 'datetime'], ['By', 'actor'], ['Role', 'role', (x) => UI.esc(UI.label(x || ''))], ['Area', 'area', 'badge'], ['Record', 'record_ref'], ['Action', 'action'], ['Details', 'details']], d.events, { id: 'alog' });
     document.getElementById('alF').onsubmit = (e) => { e.preventDefault(); const v = UI.formData(e.target); Object.keys(v).forEach(k => v[k] === '' && delete v[k]); ctx.go('audit_log', v); };
     UI.activate(ctx.el);
   },
@@ -48,16 +48,15 @@ App.page('settings', {
     const calcHelp = { fixed: 'Same amount every time', percent_of_rate: '% of the trip rate', per_day: '(amount ÷ divisor) × days present', per_km: 'amount × km', per_trip: 'amount × trips',
       fuel: '(km ÷ km per liter) × diesel price', route_toll: 'RFID / toll saved on the route', manual: 'Typed by the user', ledger: 'Installment from a balance' };
     const groups = {}; d.values.forEach(v => (groups[v.group] = groups[v.group] || []).push(v));
-    let html = `<div class="alert alert-info small"><b>Paano gamitin:</b> Palitan ang numero at pindutin ang Save. Lahat ng pagbabago ay nakatala sa Activity Log. Ang "Reset" ay ibabalik sa default na nasa <code>config/formulas.php</code>.</div>`;
-    Object.entries(groups).forEach(([g, list]) => {
-      html += UI.card(UI.esc(g), `<div class="p-3">${list.map(v => `<form class="row g-2 align-items-center mb-2 border-bottom pb-2" data-key="${v.key}">
+    // Isang group ay "editable" kapag kaya itong baguhin ng role. Mauuna ang mga iyon; ang view only ay nasa sariling tab.
+    const editable = Object.keys(groups).filter(g => groups[g].some(v => v.can_edit));
+    const viewOnly = Object.keys(groups).filter(g => !editable.includes(g));
+    const valueCard = (g) => UI.card(UI.esc(g), `<div class="p-3">${groups[g].map(v => `<form class="row g-2 align-items-center mb-2 border-bottom pb-2" data-key="${v.key}">
         <div class="col-md-5"><b class="small">${UI.esc(v.label)}</b><div class="form-help">${UI.esc(v.help)}</div><div class="form-help"><i>Source: ${UI.esc(v.source)}</i></div></div>
         <div class="col-md-3"><div class="input-group input-group-sm"><input class="form-control" name="value" value="${UI.esc(v.value)}" ${v.can_edit ? '' : 'disabled'}><span class="input-group-text">${UI.esc(v.unit)}</span></div>
         <div class="form-help">Default: ${UI.esc(v.default)}${v.is_default ? ' (in use)' : ''}</div></div>
         <div class="col-md-4">${v.can_edit ? `<button class="btn btn-sm btn-primary">Save</button> ${v.is_default ? '' : '<button type="button" class="btn btn-sm btn-link" data-reset>Reset</button>'}` : '<span class="small text-muted">View only for your role</span>'}</div></form>`).join('')}</div>`);
-    });
-    html += '<div class="section-title"><i class="bi bi-list-check"></i>Computation lists</div>';
-    d.scopes.forEach(s => {
+    const listCard = (s) => {
       const rows = s.items.map((it, i) => `<tr data-i="${i}"><td><input class="form-control form-control-sm" name="name" value="${UI.esc(it.name)}" ${s.can_edit ? '' : 'disabled'}></td>
         <td><select class="form-select form-select-sm" name="calc" ${s.can_edit ? '' : 'disabled'}>${s.calcs.map(c => `<option value="${c}" ${c === it.calc ? 'selected' : ''}>${c}</option>`).join('')}</select></td>
         <td><input class="form-control form-control-sm" name="amount" type="number" step="0.000001" value="${it.amount}" ${s.can_edit ? '' : 'disabled'} style="width:110px"></td>
@@ -67,19 +66,15 @@ App.page('settings', {
         <td class="text-center"><input type="checkbox" name="active" ${+it.active ? 'checked' : ''} ${s.can_edit ? '' : 'disabled'}></td>
         <td><input class="form-control form-control-sm" name="source" value="${UI.esc(it.source || '')}" ${s.can_edit ? '' : 'disabled'}></td>
         <td>${s.can_edit ? '<button type="button" class="btn btn-sm btn-outline-danger" data-del>✕</button>' : ''}</td></tr>`).join('');
-      html += UI.card(UI.esc(s.label), `<form data-scope="${s.scope}"><div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>Computation</th><th>Amount</th><th>Divisor</th><th>Only if with attendance</th><th>Balance type</th><th>Active</th><th>Source / note</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      return UI.card(UI.esc(s.label) + (s.can_edit ? '' : ' <span class="small text-muted">(view only for your role)</span>'), `<form data-scope="${s.scope}"><div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>Computation</th><th>Amount</th><th>Divisor</th><th>Only if with attendance</th><th>Balance type</th><th>Active</th><th>Source / note</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
         ${s.can_edit ? `<div class="p-2 d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-primary" data-add><i class="bi bi-plus"></i> Add line</button><button class="btn btn-sm btn-primary">Save list</button><button type="button" class="btn btn-sm btn-link" data-resetlist>Reset to defaults</button></div>` : ''}
         <div class="p-2 small text-muted">Computation types: ${s.calcs.map(c => `<b>${c}</b> = ${calcHelp[c]}`).join(' · ')}</div></form>`);
-    });
-    const ex = d.example;
-    html += UI.card('Example with the current values (Billing P&L sample for the projected P&L: 143 km, RFID ₱651, rate ₱15,000)', `<div class="row p-3"><div class="col-md-6"><h6>Fund request categories</h6><p class="small text-muted mb-1">Preset amounts. The dispatcher picks only the applicable ones; the total below is if all are picked.</p>${UI.breakdown(ex.allowance.lines, ex.allowance.total, 'All categories')}</div>
-      <div class="col-md-6"><h6>Projected P&L</h6><p class="small mb-1">Gross sales ${UI.money(ex.pnl.gross_sales)}</p>${UI.breakdown(ex.pnl.expenses, ex.pnl.total_expense, 'Total expense')}<p class="mt-2"><b>Net income ${UI.money(ex.pnl.net_income)}</b> (${ex.pnl.margin_percent}%)</p></div></div>`);
-    ctx.el.innerHTML = html;
-    ctx.el.querySelectorAll('form[data-key]').forEach(f => {
+    };
+    const bindValues = (root) => root.querySelectorAll('form[data-key]').forEach(f => {
       f.onsubmit = async (e) => { e.preventDefault(); try { UI.result(await App.api('Admin.setting_save', { key: f.dataset.key, value: f.value.value })); ctx.reload(); } catch (x) { UI.toast(x.message, 'error'); } };
       f.querySelector('[data-reset]')?.addEventListener('click', async () => { try { UI.result(await App.api('Admin.setting_reset', { key: f.dataset.key })); ctx.reload(); } catch (x) { UI.toast(x.message, 'error'); } });
     });
-    ctx.el.querySelectorAll('form[data-scope]').forEach(f => {
+    const bindLists = (root) => root.querySelectorAll('form[data-scope]').forEach(f => {
       const tbody = f.querySelector('tbody');
       f.addEventListener('click', (e) => {
         if (e.target.closest('[data-del]')) e.target.closest('tr').remove();
@@ -93,6 +88,21 @@ App.page('settings', {
         try { UI.result(await App.api('Admin.items_save', { scope: f.dataset.scope, items })); ctx.reload(); } catch (x) { UI.toast(x.message, 'error'); }
       };
     });
+    const show = (html, bind) => (body) => { body.innerHTML = html; bind(body); };
+    // Values: isang pill bawat group na kayang i-edit; ang hindi kayang i-edit ay pinagsama sa "View only".
+    const valueTabs = (editable.length ? editable : viewOnly).map(g => [g, UI.esc(g), show(valueCard(g), bindValues)]);
+    if (editable.length && viewOnly.length) valueTabs.push(['_view', '<i class="bi bi-lock me-1"></i>View only', show(viewOnly.map(valueCard).join(''), bindValues)]);
+    const scopes = [...d.scopes.filter(s => s.can_edit), ...d.scopes.filter(s => !s.can_edit)];
+    const listTabs = scopes.map(s => [s.scope, (s.can_edit ? '' : '<i class="bi bi-lock me-1"></i>') + UI.esc(s.label.replace(/ \(.*\)$/, '')), show(listCard(s), bindLists)]);
+    const ex = d.example;
+    const example = UI.card('Example with the current values (Billing P&L sample for the projected P&L: 143 km, RFID ₱651, rate ₱15,000)', `<div class="row p-3"><div class="col-md-6"><h6>Fund request categories</h6><p class="small text-muted mb-1">Preset amounts. The dispatcher picks only the applicable ones; the total below is if all are picked.</p>${UI.breakdown(ex.allowance.lines, ex.allowance.total, 'All categories')}</div>
+      <div class="col-md-6"><h6>Projected P&L</h6><p class="small mb-1">Gross sales ${UI.money(ex.pnl.gross_sales)}</p>${UI.breakdown(ex.pnl.expenses, ex.pnl.total_expense, 'Total expense')}<p class="mt-2"><b>Net income ${UI.money(ex.pnl.net_income)}</b> (${ex.pnl.margin_percent}%)</p></div></div>`);
+    ctx.el.innerHTML = `<div class="alert alert-info small"><b>Paano gamitin:</b> Palitan ang numero at pindutin ang Save. Lahat ng pagbabago ay nakatala sa Activity Log. Ang "Reset" ay ibabalik sa default na nasa <code>config/formulas.php</code>.</div>`;
+    UI.groupTabs(ctx.el, [
+      ['values', '<i class="bi bi-123 me-1"></i>Values', valueTabs],
+      ['lists', '<i class="bi bi-list-check me-1"></i>Computation lists', listTabs],
+      ['example', '<i class="bi bi-calculator me-1"></i>Example', [['ex', 'Example', () => example]]],
+    ], { key: 'settings' });
   },
 });
 

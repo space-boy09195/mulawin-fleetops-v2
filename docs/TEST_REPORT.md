@@ -42,6 +42,21 @@ Fresh empty database imported from `database/schema.sql` + `database/extension.s
 | UI click-through (create trip to resume trip) | PASS |
 | Module isolation: broken `Accounting/Payroll.php` → payroll 503; trips, billing, dashboard still 200 | PASS |
 
+### Re-test 2026-11-01 (after the navigation polish)
+
+| Test | Result |
+|---|---|
+| `php -l` / `node --check` on every file | PASS |
+| `scripts/preflight.php`; `tests/formula_test.php` on a fresh database (15 checks) | PASS |
+| `tests/e2e_workflow.py` — 191 checks, 0 failures | PASS |
+| Every page for every role, every tab, sub-tab (pills), table picker and "Show more charts" clicked: no JS errors, no failed sections | PASS |
+| UI click-through (create trip to resume trip) | PASS |
+| Pagination (Prev/Next, search resets to page 1), sidebar accordion, Back to top | PASS |
+| Phone (390 px wide): no page wider than the screen | PASS |
+
+Page height before → after (1440×900 screen, test data): Reports (Admin) 6,949 → 1,454 px; Reports (Audit) 5,858 → 1,454;
+Formula Settings 4,806 → 900; Dashboard (Admin) 2,706 → 1,557; Dashboard (Ops Head) 1,724 → 1,394. Longest page now: 1,664 px.
+
 Notes:
 - `tests/formula_test.php` compares with the Excel defaults, so run it on a database where Formula Settings were not changed.
 - The Apache `.htaccess` rules were not changed in this update (last Apache test: PASS).

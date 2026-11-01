@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-01 (polish: navigation at layout)
+- Sidebar: isang section lang ang bukas (accordion); bubukas ang section ng current page.
+- Nakadikit ang page header (title at buttons) habang nag-i-scroll; may "Back to top" button.
+- Reports & Analytics: isang tab bawat section (Trips, Fleet, Money, Payroll, Stock ayon sa role); ang mga table ng
+  section ay nasa iisang card na may pills; ang walang laman ay isang linya na lang; "More filters" para sa
+  truck type, status, client, truck, driver at dispatcher.
+- Dashboards: alerts, cards, 2 charts (ang iba ay "Show more"), tapos tables sa iisang card na may pills.
+  Ang cards ng Admin at Operations Head ay naka-grupo (Trips, Fleet, Pera / Fleet at crew).
+- Formula Settings: tabs (Values na may pill bawat group, Computation lists, Example); editable muna, View only sa huli.
+- Finance & Payables: 8 tabs naka-grupo sa 3 (Gastos at Bayarin, Empleyado, Plano).
+- Work pages: compact na stat cards para kita agad ang table.
+- Tables: 25 rows bawat page na may Prev at Next (dating "Show more"). Search at CSV ay sakop pa rin ang lahat ng rows.
+- Phone: tabs na naka-swipe, 2 cards bawat hilera, walang page na lumalampas sa lapad ng screen.
+- Walang binago sa database, workflow, permissions o formulas. Files: `core.js`, `app.css`, `general/reports.js`,
+  `general/dashboard.js`, `administration/admin.js`, `accounting/finance.js`, `backend/Modules/General/Analytics.php`.
+
 ## 2026-11-01 (modules grouped by department)
 - Backend modules moved to department folders: `backend/Modules/Operations/` (Fleet, Trips, Inspections),
   `Maintenance/` (Maintenance, Purchasing), `Accounting/` (Funds, Finance, Billing, Payroll),

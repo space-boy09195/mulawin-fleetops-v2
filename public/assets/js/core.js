@@ -174,11 +174,17 @@ const App = {
         </header>
         <main class="page-content" id="pageContent"></main>
       </div>
-    </div><div id="printArea"></div>`;
+    </div><button type="button" class="to-top no-print" id="toTop" title="Back to top"><i class="bi bi-arrow-up"></i></button><div id="printArea"></div>`;
+    // Accordion: isang section lang ang bukas para hindi mahaba ang sidebar.
     document.querySelectorAll('[data-sec]').forEach(b => b.onclick = () => {
-      const box = document.getElementById(b.dataset.sec); const open = box.hidden;
-      box.hidden = !open; b.classList.toggle('collapsed', !open); box.classList.toggle('collapsed', !open);
+      const box = document.getElementById(b.dataset.sec); this.openSection(box.hidden ? b.dataset.sec : null);
     });
+    // Mahabang page: itago ang subtitle habang naka-scroll at ipakita ang "Back to top".
+    document.getElementById('toTop').onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.onscroll = () => {
+      document.body.classList.toggle('page-scrolled', window.scrollY > 120);
+      document.getElementById('toTop').classList.toggle('show', window.scrollY > 400);
+    };
     const sidebar = document.getElementById('appSidebar'), shell = document.getElementById('appShell'), overlay = document.getElementById('sidebarOverlay');
     document.getElementById('sidebarToggleBtn').onclick = () => {
       if (window.innerWidth <= 768) { sidebar.classList.toggle('mobile-open'); overlay.classList.toggle('active'); }
@@ -189,6 +195,14 @@ const App = {
     document.getElementById('chgPw').onclick = () => this.passwordScreen(false);
     document.getElementById('bellClear').onclick = async (e) => { e.stopPropagation(); await this.api('Admin.notifications_read', {}); this.refreshBell(); };
     this.renderBell();
+  },
+
+  /** Bubuksan ang isang sidebar section at isasara ang iba (null = isara lahat). */
+  openSection(secId) {
+    document.querySelectorAll('[data-sec]').forEach(b => {
+      const box = document.getElementById(b.dataset.sec), open = b.dataset.sec === secId;
+      box.hidden = !open; b.classList.toggle('collapsed', !open); box.classList.toggle('collapsed', !open);
+    });
   },
 
   renderBell() {
@@ -221,7 +235,7 @@ const App = {
     document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === page));
     const link = document.querySelector(`[data-nav="${page}"]`);
     const sec = link && link.closest('.nav-section-items');
-    if (sec && sec.hidden) { sec.hidden = false; sec.classList.remove('collapsed'); document.querySelector(`[data-sec="${sec.id}"]`).classList.remove('collapsed'); }
+    this.openSection(sec ? sec.id : null);
     document.getElementById('appSidebar').classList.remove('mobile-open'); document.getElementById('sidebarOverlay').classList.remove('active');
     document.getElementById('bcTitle').textContent = nav.label;
     const el = document.getElementById('pageContent');
@@ -231,9 +245,14 @@ const App = {
         <div class="module-down"><i class="bi bi-exclamation-triangle me-2"></i>This module's screen (assets/js/modules/${UI.esc(nav.js)}.js) did not load. Other modules still work. Reload the page or check the file.</div>`;
       return;
     }
-    el.innerHTML = `<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+    // Nakadikit ang header (title at buttons) habang nag-i-scroll. Ang dashboard at reports
+    // ay may malalaking cards; ang ibang page (work pages) ay compact ang cards.
+    const work = !['dashboard', 'reports'].includes(page);
+    el.innerHTML = `<div class="page-header page-header-sticky d-flex justify-content-between align-items-start flex-wrap gap-2">
         <div><div class="page-title">${UI.esc(def.title || nav.label)}</div><div class="page-subtitle">${UI.esc(def.subtitle || '')}</div></div>
-        <div class="d-flex gap-2 no-print" id="pageTools"></div></div><div id="pageBody"><div class="text-muted p-4"><span class="spinner-border spinner-border-sm me-2"></span>Loading…</div></div>`;
+        <div class="d-flex gap-2 no-print" id="pageTools"></div></div><div id="pageBody" class="${work ? 'work-page' : ''}"><div class="text-muted p-4"><span class="spinner-border spinner-border-sm me-2"></span>Loading…</div></div>`;
+    if (this._lastPage !== page) window.scrollTo(0, 0); // bagong page lang; hindi kapag nag-reload pagka-save
+    this._lastPage = page;
     const body = document.getElementById('pageBody');
     const ctx = { page, query, el: body, tools: document.getElementById('pageTools'), me: this.me, data: null,
       reload: () => this.route(), go: (p, q) => this.go(p, q), setQuery: (q) => this.go(page, { ...query, ...q }) };
@@ -316,11 +335,11 @@ UI.card = (title, body, tools = '') => `<div class="card card-gap"><div class="c
  */
 UI.table = (columns, rows, opts = {}) => {
   const id = opts.id || 'tbl' + Math.random().toString(36).slice(2, 8);
-  UI._tables[id] = { columns, rows: rows || [], opts, limit: opts.limit || 50, filter: '' };
+  UI._tables[id] = { columns, rows: rows || [], opts, limit: opts.limit || 25, page: 0, filter: '' };
   const head = `<div class="table-tools"><input class="form-control form-control-sm" placeholder="Search…" data-tsearch="${id}">
      <div class="d-flex gap-2 align-items-center"><span class="text-muted small" data-tcount="${id}"></span>${opts.tools || ''}
      <button class="btn btn-sm btn-outline-secondary" data-tcsv="${id}" title="Download CSV"><i class="bi bi-download"></i> CSV</button></div></div>`;
-  const html = `${head}<div class="table-wrap" data-tbody="${id}"></div>`;
+  const html = `${head}<div class="table-wrap" data-tbody="${id}"></div><div class="table-pager no-print" data-tpager="${id}"></div>`;
   return opts.title ? UI.card(opts.title, html) : `<div class="card card-gap">${html}</div>`;
 };
 UI._tables = {};
@@ -329,17 +348,25 @@ UI.tableRows = (id) => {
   const f = t.filter.toLowerCase();
   return f ? t.rows.filter(r => t.columns.some(([, k]) => String(r[k] ?? '').toLowerCase().includes(f))) : t.rows;
 };
+/** Gumuguhit ng isang page ng table (25 rows bawat page, may Prev at Next). */
 UI.drawTable = (id) => {
   const t = UI._tables[id]; const box = document.querySelector(`[data-tbody="${id}"]`); if (!t || !box) return;
   const rows = UI.tableRows(id);
   document.querySelector(`[data-tcount="${id}"]`).textContent = rows.length + ' record(s)';
+  const pager = box.parentElement.querySelector(`[data-tpager="${id}"]`);
+  if (pager) pager.innerHTML = '';
   if (!rows.length) { box.innerHTML = `<div class="table-empty">${UI.esc(t.opts.empty || 'No records yet.')}</div>`; return; }
-  const shown = rows.slice(0, t.limit);
+  const pages = Math.ceil(rows.length / t.limit);
+  t.page = Math.min(Math.max(t.page, 0), pages - 1);
+  const first = t.page * t.limit, shown = rows.slice(first, first + t.limit);
   const money = (f) => f === 'money' || f === 'num';
   box.innerHTML = `<table class="data-table"><thead><tr>${t.columns.map(([l, , f]) => `<th class="${money(f) ? 'num' : ''}">${UI.esc(l)}</th>`).join('')}${t.opts.actions ? '<th>Actions</th>' : ''}</tr></thead>
-    <tbody>${shown.map((r, i) => `<tr>${t.columns.map(([, k, f]) => `<td class="${money(f) ? 'num' : ''}">${UI.fmt(f, r[k], r)}</td>`).join('')}${t.opts.actions ? `<td><div class="row-actions" data-row="${id}:${t.rows.indexOf(r)}">${t.opts.actions(r) || ''}</div></td>` : ''}</tr>`).join('')}</tbody></table>
-    ${rows.length > shown.length ? `<div class="text-center p-2"><button class="btn btn-sm btn-outline-secondary" data-tmore="${id}">Show more (${rows.length - shown.length} left)</button></div>` : ''}`;
-  box.querySelector('[data-tmore]')?.addEventListener('click', () => { t.limit += 100; UI.drawTable(id); });
+    <tbody>${shown.map((r) => `<tr>${t.columns.map(([, k, f]) => `<td class="${money(f) ? 'num' : ''}">${UI.fmt(f, r[k], r)}</td>`).join('')}${t.opts.actions ? `<td><div class="row-actions" data-row="${id}:${t.rows.indexOf(r)}">${t.opts.actions(r) || ''}</div></td>` : ''}</tr>`).join('')}</tbody></table>`;
+  if (pager) pager.innerHTML = pages > 1 ? `<span class="small text-muted">${first + 1}–${first + shown.length} of ${rows.length}</span>
+    <div class="btn-group btn-group-sm"><button type="button" class="btn btn-outline-secondary" data-tpg="-1" ${t.page === 0 ? 'disabled' : ''}><i class="bi bi-chevron-left"></i> Prev</button>
+    <button type="button" class="btn btn-outline-secondary" disabled>Page ${t.page + 1} of ${pages}</button>
+    <button type="button" class="btn btn-outline-secondary" data-tpg="1" ${t.page >= pages - 1 ? 'disabled' : ''}>Next <i class="bi bi-chevron-right"></i></button></div>` : '';
+  pager?.querySelectorAll('[data-tpg]').forEach(b => b.onclick = () => { t.page += +b.dataset.tpg; UI.drawTable(id); box.scrollTop = 0; });
   if (t.opts.onAction) box.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
     const idx = +b.closest('[data-row]').dataset.row.split(':')[1]; t.opts.onAction(b.dataset.act, t.rows[idx], b);
   }));
@@ -347,12 +374,18 @@ UI.drawTable = (id) => {
 /** Call after inserting table HTML into the page. */
 UI.activate = (root) => {
   root.querySelectorAll('[data-tbody]').forEach(b => UI.drawTable(b.dataset.tbody));
-  root.querySelectorAll('[data-tsearch]').forEach(inp => inp.addEventListener('input', () => { const t = UI._tables[inp.dataset.tsearch]; t.filter = inp.value; t.limit = 50; UI.drawTable(inp.dataset.tsearch); }));
+  root.querySelectorAll('[data-tsearch]').forEach(inp => inp.addEventListener('input', () => { const t = UI._tables[inp.dataset.tsearch]; t.filter = inp.value; t.page = 0; UI.drawTable(inp.dataset.tsearch); }));
   root.querySelectorAll('[data-tcsv]').forEach(b => b.addEventListener('click', () => {
     const t = UI._tables[b.dataset.tcsv]; UI.csv((t.opts.title || 'report').replace(/<[^>]+>/g, ''), t.columns, UI.tableRows(b.dataset.tcsv));
   }));
   UI.bindGo(root);
   root.querySelectorAll('[data-chart]').forEach(c => UI.drawChart(c));
+  root.querySelectorAll('[data-tpicker]').forEach(box => UI.drawPicker(box));
+  root.querySelectorAll('[data-chartmore]').forEach(m => m.querySelector('button').onclick = () => {
+    const holder = document.createElement('div'); holder.className = 'chart-grid';
+    holder.innerHTML = (UI._more[m.dataset.chartmore] || []).map(UI.chartHtml).join('');
+    m.replaceWith(holder); holder.querySelectorAll('[data-chart]').forEach(c => UI.drawChart(c));
+  });
 };
 UI.btn = (act, label, cls = 'outline-primary', icon = '') => `<button class="btn btn-sm btn-${cls}" data-act="${act}">${icon ? `<i class="bi ${icon}"></i> ` : ''}${UI.esc(label)}</button>`;
 
@@ -442,22 +475,39 @@ UI.confirmAction = (title, text, action, payload, opts = {}) => UI.modal(title, 
   const r = await App.api(action, { ...payload, ...d }); UI.result(r); App.route();
 }, { size: '', submit: opts.submit || 'Confirm', danger: opts.danger });
 
-/** Simple tabs: tabs = [[key, label, htmlFn]] */
-UI.tabs = (root, tabs, active) => {
+/**
+ * Tabs: tabs = [[key, label, htmlFn]]. Naaalala ang huling tab bawat page.
+ * opts.key  = hiwalay na alaala kapag may higit sa isang tab group sa page (halimbawa tabs sa loob ng tab)
+ * opts.pills = maliit na pills (para sa tabs sa loob ng tab)
+ */
+UI.tabs = (root, tabs, active, opts = {}) => {
+  if (!tabs.length) return;
   const id = 'tabs' + Math.random().toString(36).slice(2, 6);
+  const mem = 'tab:' + App.current.page + (opts.key ? ':' + opts.key : '');
   active = active || tabs[0][0];
-  root.insertAdjacentHTML('beforeend', `<ul class="nav nav-tabs mb-3 no-print" id="${id}">${tabs.map(([k, l]) => `<li class="nav-item"><button class="nav-link ${k === active ? 'active' : ''}" data-tab="${k}">${l}</button></li>`).join('')}</ul><div id="${id}body"></div>`);
+  root.insertAdjacentHTML('beforeend', `<ul class="nav ${opts.pills ? 'nav-pills sub-tabs' : 'nav-tabs'} mb-3 no-print" id="${id}">${tabs.map(([k, l]) => `<li class="nav-item"><button type="button" class="nav-link ${k === active ? 'active' : ''}" data-tab="${k}">${l}</button></li>`).join('')}</ul><div id="${id}body"></div>`);
   const body = document.getElementById(id + 'body');
   const show = (k) => {
-    document.querySelectorAll(`#${id} [data-tab]`).forEach(b => b.classList.toggle('active', b.dataset.tab === k));
+    document.querySelectorAll(`#${id} > li > [data-tab]`).forEach(b => b.classList.toggle('active', b.dataset.tab === k));
     const t = tabs.find(x => x[0] === k);
     try { body.innerHTML = ''; const out = t[2](body); if (typeof out === 'string') body.innerHTML = out; UI.activate(body); }
     catch (e) { console.error(e); body.innerHTML = `<div class="module-down">${UI.esc(e.message)}</div>`; }
-    sessionStorage.setItem('tab:' + App.current.page, k);
+    sessionStorage.setItem(mem, k);
   };
-  document.querySelectorAll(`#${id} [data-tab]`).forEach(b => b.onclick = () => show(b.dataset.tab));
-  const remembered = sessionStorage.getItem('tab:' + App.current.page);
+  document.querySelectorAll(`#${id} > li > [data-tab]`).forEach(b => b.onclick = () => show(b.dataset.tab));
+  const remembered = sessionStorage.getItem(mem);
   show(tabs.some(t => t[0] === remembered) ? remembered : active);
+};
+
+/**
+ * Naka-grupong tabs: groups = [[key, label, [[key, label, htmlFn], ...]], ...].
+ * Unang hilera = grupo; sa loob = maliit na pills ng mga tab ng grupong iyon.
+ */
+UI.groupTabs = (root, groups, opts = {}) => {
+  UI.tabs(root, groups.map(([gk, gl, tabs]) => [gk, gl, (body) => {
+    if (tabs.length === 1) return tabs[0][2](body);
+    UI.tabs(body, tabs, null, { key: (opts.key || 'g') + ':' + gk, pills: true });
+  }]), null, { key: opts.key });
 };
 
 // ------------------------------------------------------------------ charts (Chart.js, repo colors)
@@ -482,17 +532,62 @@ UI.drawChart = (canvas) => {
   });
 };
 
-/** Renders the common {alerts, cards, charts, tables} block used by dashboards and reports. */
-UI.blocks = (spec) => {
+/**
+ * Renders the common {alerts, cards, charts, tables} block used by dashboards and reports.
+ * Pagkakasunod: alerts (kailangang gawin) -> cards -> charts -> tables.
+ * opts.maxCharts = ilang chart ang kita agad; ang iba ay nasa "Show more charts".
+ * Kapag higit sa isa ang table: iisang card na may pamimilian (pills). Ang walang laman
+ * ay isang maikling linya na lang.
+ */
+UI.blocks = (spec, opts = {}) => {
   let h = '';
   if (spec.alerts && spec.alerts.length) h += `<div class="dash-alerts">${spec.alerts.map(a => `<div class="alert alert-${a.level || 'info'}"><span>${UI.esc(a.text)}</span>${a.page ? `<button class="btn btn-sm btn-light" data-go="${a.page}">Open</button>` : ''}</div>`).join('')}</div>`;
-  if (spec.cards && spec.cards.length) h += UI.cards(spec.cards);
-  if (spec.charts && spec.charts.length) h += `<div class="chart-grid">${spec.charts.map(UI.chartHtml).join('')}</div>`;
-  (spec.tables || []).forEach(t => {
-    const cols = t.columns.map(([l, k, f]) => [l, k, f]);
-    h += UI.table(cols, t.rows, { title: UI.esc(t.title) + (t.page ? ` <a href="#${t.page}" class="small ms-2">open</a>` : ''), limit: 25 });
-  });
+  if (spec.cards && spec.cards.length) h += UI.cardGroups(spec.cards);
+  const charts = spec.charts || [], max = opts.maxCharts || charts.length;
+  if (charts.length) {
+    h += `<div class="chart-grid">${charts.slice(0, max).map(UI.chartHtml).join('')}</div>`;
+    if (charts.length > max) {
+      const id = 'cm' + Math.random().toString(36).slice(2, 8);
+      UI._more[id] = charts.slice(max);
+      h += `<div class="chart-more no-print" data-chartmore="${id}"><button type="button" class="btn btn-sm btn-outline-secondary"><i class="bi bi-bar-chart"></i> Show ${charts.length - max} more chart(s)</button></div>`;
+    }
+  }
+  const tables = spec.tables || [];
+  if (tables.length === 1) h += UI.blockTable(tables[0]);
+  else if (tables.length > 1) {
+    const id = 'tp' + Math.random().toString(36).slice(2, 8);
+    UI._pickers[id] = { tables, key: opts.key || '' };
+    h += `<div class="card card-gap" data-tpicker="${id}"></div>`;
+  }
   return h;
+};
+UI._more = {}; UI._pickers = {};
+UI.blockTable = (t, title = true) => UI.table(t.columns.map(([l, k, f]) => [l, k, f]), t.rows, { title: title ? UI.esc(t.title) + (t.page ? ` <a href="#${t.page}" class="small ms-2">open</a>` : '') : '', limit: 25 });
+/** Stat cards; kapag may "group" ang cards, may maliit na heading bawat grupo. */
+UI.cardGroups = (cards) => {
+  if (!cards.some(c => c.group)) return UI.cards(cards);
+  const groups = [];
+  cards.forEach(c => { const g = groups.find(x => x[0] === (c.group || '')); g ? g[1].push(c) : groups.push([c.group || '', [c]]); });
+  return groups.map(([g, list]) => `${g ? `<div class="card-group-title">${UI.esc(g)}</div>` : ''}${UI.cards(list)}`).join('');
+};
+/** Iginuguhit ang table picker: pills ng mga table na may laman, at isang linya para sa walang laman. */
+UI.drawPicker = (box) => {
+  const p = UI._pickers[box.dataset.tpicker]; if (!p) return;
+  const full = p.tables.filter(t => (t.rows || []).length), empty = p.tables.filter(t => !(t.rows || []).length);
+  const mem = 'tpick:' + App.current.page + ':' + p.key;
+  let cur = sessionStorage.getItem(mem);
+  if (!full.some(t => t.title === cur)) cur = full.length ? full[0].title : null;
+  const t = full.find(x => x.title === cur);
+  box.innerHTML = `${full.length ? `<div class="card-header-custom picker-head"><div class="picker-pills">${full.map(x => `<button type="button" class="picker-pill ${x === t ? 'active' : ''}" data-pick="${UI.esc(x.title)}">${UI.esc(x.title)} <span class="picker-count">${x.rows.length}</span></button>`).join('')}</div>
+      ${t && t.page ? `<a href="#${t.page}" class="small text-nowrap">open page</a>` : ''}</div>` : ''}
+    ${t ? UI.blockTable(t, false).replace(/^<div class="card card-gap">/, '<div class="picker-body">') : ''}
+    ${empty.length ? `<div class="picker-empty"><i class="bi bi-info-circle"></i> No records: ${empty.map(x => UI.esc(x.title)).join(', ')}.</div>` : ''}`;
+  box.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { sessionStorage.setItem(mem, b.dataset.pick); UI.drawPicker(box); });
+  box.querySelectorAll('[data-tbody]').forEach(b => UI.drawTable(b.dataset.tbody));
+  box.querySelectorAll('[data-tsearch]').forEach(inp => inp.addEventListener('input', () => { const tb = UI._tables[inp.dataset.tsearch]; tb.filter = inp.value; tb.page = 0; UI.drawTable(inp.dataset.tsearch); }));
+  box.querySelectorAll('[data-tcsv]').forEach(b => b.addEventListener('click', () => {
+    const tb = UI._tables[b.dataset.tcsv]; UI.csv(t ? t.title : 'report', tb.columns, UI.tableRows(b.dataset.tcsv));
+  }));
 };
 
 /** Small list showing a computation (name, how, amount). */

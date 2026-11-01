@@ -128,3 +128,74 @@ a { color: var(--primary); }
 .page-content .nav-tabs .nav-link.active { color: var(--primary); background: var(--card-bg); border-color: var(--card-border) var(--card-border) var(--card-bg); font-weight: 700; box-shadow: inset 0 3px 0 var(--accent); }
 .dropdown-menu .dropdown-item { color: var(--text-primary); }
 .chart-grid > .card, .stat-grid > .card { margin-top: 0; }
+
+/* =====================================================================
+   NAVIGATION POLISH (2026-11-01) — mas maikli at mas madaling basahin ang mga page
+   ===================================================================== */
+
+/* ---- Nakadikit na page header (desktop) ---- */
+@media (min-width: 769px) {
+  .page-header-sticky { position: sticky; top: var(--topnav-height); z-index: 800; background: var(--content-bg);
+    margin: -24px -24px 18px; padding: 14px 24px 10px; border-bottom: 1px solid transparent; transition: border-color .15s, box-shadow .15s; }
+  body.page-scrolled .page-header-sticky { border-bottom-color: var(--card-border); box-shadow: 0 6px 14px -12px rgba(0,0,0,.35); }
+  body.page-scrolled .page-header-sticky .page-subtitle { display: none; }
+  body.page-scrolled .page-header-sticky .page-title { font-size: 1.1rem; }
+}
+
+/* ---- Back to top ---- */
+.to-top { position: fixed; right: 22px; bottom: 22px; z-index: 1500; width: 42px; height: 42px; border-radius: 50%; border: 0;
+  background: var(--primary); color: #fff; box-shadow: 0 6px 18px rgba(0,0,0,.25); display: none; align-items: center; justify-content: center; font-size: 1.1rem; }
+.to-top.show { display: flex; }
+.to-top:hover { background: #0a3a1d; }
+
+/* ---- Compact na stat cards sa work pages (para kita agad ang table) ---- */
+.work-page .stat-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.work-page .stat-card { padding: 10px 14px; gap: 10px; }
+.work-page .stat-icon { width: 34px; height: 34px; font-size: 1rem; border-radius: 8px; }
+.work-page .stat-info .stat-value { font-size: 1.15rem; }
+.work-page .stat-info .stat-label { font-size: .72rem; }
+
+/* ---- Grupo ng cards sa dashboard ---- */
+.card-group-title { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 4px 0 8px; }
+
+/* ---- Tabs sa loob ng tab (pills) ---- */
+.page-content .sub-tabs { gap: 6px; flex-wrap: wrap; }
+.page-content .sub-tabs .nav-link { border-radius: 20px !important; padding: 4px 12px; font-size: .8rem; color: var(--text-secondary); background: #eef2f0;
+  border: 1px solid transparent; transform: none; box-shadow: none; display: block; }
+.page-content .sub-tabs .nav-link:hover { color: var(--primary); border-color: var(--card-border); transform: none; box-shadow: none; }
+.page-content .sub-tabs .nav-link.active { color: #fff; background: var(--primary); font-weight: 600; }
+
+/* ---- Table picker (iisang card para sa maraming table) ---- */
+.picker-head { flex-wrap: wrap; }
+.picker-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.picker-pill { border: 1px solid var(--card-border); background: #fff; color: var(--text-secondary); border-radius: 20px !important; padding: 4px 12px; font-size: .8rem; }
+.picker-pill.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+.picker-count { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: rgba(0,0,0,.08); font-size: .7rem; margin-left: 4px; }
+.picker-pill.active .picker-count { background: rgba(255,255,255,.25); }
+.picker-empty { padding: 10px 16px; font-size: .78rem; color: var(--text-muted); border-top: 1px solid var(--card-border); }
+.chart-more { margin: -6px 0 18px; }
+
+/* ---- Pagination ng tables ---- */
+.table-pager { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 16px; }
+.table-pager:not(:empty) { padding: 10px 16px; border-top: 1px solid var(--card-border); }
+.table-pager .btn[disabled] { opacity: .6; }
+
+/* ---- Phone at tablet ---- */
+@media (max-width: 768px) {
+  .page-content .nav-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+  .page-content .nav-tabs .nav-item { flex: 0 0 auto; }
+  .page-content .nav-tabs .nav-link { white-space: nowrap; }
+  .work-page .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .table-tools .form-control { max-width: none; flex: 1 1 100%; }
+  .table-wrap { max-height: 70vh; }
+  .to-top { right: 14px; bottom: 14px; }
+}
+@media (max-width: 576px) {
+  /* Sa phone: lahat ng stat cards ay compact at hindi lalampas sa screen (mahahabang halaga ng pera). */
+  .stat-grid { gap: 8px; }
+  .page-content .stat-card { padding: 10px; gap: 8px; min-width: 0; }
+  .stat-icon { width: 30px; height: 30px; font-size: .9rem; border-radius: 8px; }
+  .stat-info { min-width: 0; }
+  .stat-info .stat-value { font-size: 1.05rem; overflow-wrap: anywhere; }
+  .stat-info .stat-label { font-size: .7rem; }
+}

@@ -121,7 +121,7 @@ Pagka-login, ang **Billing and Collection Dashboard** ang lalabas.
 
 | Card | Ibig sabihin |
 | --- | --- |
-| Completed trips awaiting billing | Tapos na trips na hindi pa nai-invoice |
+| Completed trips awaiting billing | Tapos na trips na hindi pa nai-invoice (Draft o Finalized pa ang billing) |
 | Total billing / Invoices issued this month | Halaga at bilang ng invoice ngayong buwan |
 | Collections this month | Perang natanggap mula sa clients |
 | Outstanding balance | Hindi pa nababayarang invoices |
@@ -140,13 +140,18 @@ Pagka-login, ang **Billing and Collection Dashboard** ang lalabas.
 
 &#91;image: Clients, Routes & Rates page\]
 
-### B. Gumawa ng invoice
+### B. Billing draft, finalize at invoice
 
-1. **Financial & Billing > Billing & Collections**, tab na **Not yet billed**. Naka-grupo per client ang completed trips at ang expected amount.
-2. Sa client, pindutin ang **Create invoice**.
-3. Ilagay ang **Invoice no.**, **Invoice date**, **Due date** (blangko = invoice date + payment terms ng client), **Discount** at **Notes**.
-4. Sa listahan ng trips, i-check ang isasama. Bawat trip: piliin ang **Basis**, **Qty** at **Rate** (kusang laman ang rate kung may rate card). Makikita rin kung may waybill.
-5. **Save**. Hindi na pwedeng i-bill ulit ang trips na kasama.
+Bagong flow (PDF 7): kapag na-dispatch ang trip (ongoing), **kusang gagawa ang system ng billing draft** gamit ang client rate ng route. Pwede lang itong i-finalize kapag **Completed** na ang trip at **verified** na ang documents.
+
+1. **Financial & Billing > Billing & Collections**, tab na **Billing drafts**. Makikita ang trip, trip status, waybill, Documents (Verified o Not verified), rate at amount.
+2. Kung **no rate** (walang client rate sa route) o kailangang ayusin, pindutin ang **Edit**. Ilagay ang **Basis**, **Quantity** at **Rate**, tapos **Save**. Amount = rate × quantity.
+3. Kapag may waybill na ang trip, pindutin ang **Verify documents**, tingnan ang waybill, tapos **Verify**.
+4. Kapag **Completed** na ang trip at verified na, pindutin ang **Finalize**. Naka-disable ito habang kulang pa; itapat ang mouse para makita kung ano ang kulang.
+5. Tab na **Ready to invoice**: naka-grupo per client ang finalized billings. Pindutin ang **Create invoice**.
+6. Ilagay ang **Invoice no.**, **Invoice date**, **Due date** (blangko = invoice date + payment terms ng client), **Discount** at **Notes**. I-check ang mga trip na isasama; galing na sa finalized billing ang halaga.
+7. Pindutin ang **Issue invoice**. Magiging Invoiced ang mga billing at hindi na pwedeng i-bill ulit.
+8. Kung may mali sa finalized na hindi pa naka-invoice, pindutin ang **Return to draft** (may dahilan), ayusin, tapos i-finalize ulit.
 
 &#91;image: Billing & Collections page\]
 
@@ -184,11 +189,11 @@ Pagka-login, ang **Payroll Dashboard** ang lalabas.
 | Payroll per period chart | Gross, deductions at net bawat period |
 | Completed trips without waybill | Trips na hindi mabibilang sa trip pay hangga't walang waybill |
 
-**Sidebar ng Payroll (Dashboard sa itaas, at 9 pa):** Fleet Management > **Drivers, Helpers & Staff**; Trip & Dispatch > Trip Records & Waybills (completed lang); Financial & Billing > Clients, Routes & Rates (tingin lang); Payroll & Timekeeping > **Payroll**, **Attendance**, **Cash Advance & Balances**; Records > **Documents**; Reports & Administration > **Reports & Analytics** at **Formula Settings**.
+**Sidebar ng Payroll (Dashboard sa itaas, at 9 pa):** Fleet Management > **Drivers & Helpers**; Trip & Dispatch > Trip Records & Waybills (completed lang); Financial & Billing > Clients, Routes & Rates (tingin lang); Payroll & Timekeeping > **Payroll**, **Attendance**, **Cash Advance & Balances**; Records > **Documents**; Reports & Administration > **Reports & Analytics** at **Formula Settings**.
 
 ### A. Unang setup
 
-1. **Fleet Management > Drivers, Helpers & Staff**. Sa bawat tao, pindutin ang **Pay info** at ilagay ang **Daily rate**, **Pay frequency** at **Payroll group**.
+1. **Fleet Management > Drivers & Helpers**. Sa bawat tao, pindutin ang **Pay info** at ilagay ang **Daily rate**, **Pay frequency** at **Payroll group**.
 2. **Payroll**, tab na **Trip pay rates**. Pindutin ang **Rate**, piliin ang **Truck type** at **Route** (o destination), at ilagay ang **Driver rate per trip** at **Helper rate per trip**. **Save**.
 3. Sa **Formula Settings** (Payroll group), i-check ang SSS (775 ÷ 24 × araw), PhilHealth 75, Pag-IBIG 50 at Cash Bond 500.
 
@@ -233,7 +238,7 @@ Ang cash advance na ibinigay ng Finance ay kusang lalabas dito.
 | Galing sa | Ano ang nangyayari | Saan lalabas sa Accounting |
 | --- | --- | --- |
 | Operations: fund request sa trip | Finance ang mag-approve at mag-release | Finance > Disbursements at Expenses |
-| Operations: trip naging Completed | Pwede nang ilagay sa invoice | Billing > Billing / SOA, tapos Collections |
+| Operations: trip na-dispatch (ongoing), tapos Completed | System gumagawa ng billing draft sa dispatch; Billing nagve-verify at nagfi-finalize kapag Completed, saka nag-i-invoice | Billing > Billing / SOA, tapos Collections |
 | Operations: waybill na-upload sa completed trip | Mabibilang na sa trip pay | Payroll > trip pay ng driver at helper |
 | Maintenance: purchase order na received | Gagawa ng payable | Finance > Payables, tapos Pay |
 | Payroll: Submit to Finance | Finance ang magdi-disburse | Finance > Disbursements |
@@ -248,7 +253,7 @@ Ang cash advance na ibinigay ng Finance ay kusang lalabas dito.
 ### Mga dapat tandaan
 
 - Walang waybill, walang trip pay. Silipin ang "Completed trips without waybill" sa Payroll Dashboard.
-- Pwedeng i-bill ang completed trip kahit wala pang waybill, pero magpapakita ang system ng babala na i-follow up ito.
+- Hindi pwedeng i-finalize ang billing hangga't walang waybill na na-verify ng Billing at hindi pa Completed ang trip.
 - Finance lang ang makakapag-release ng pera. Ang Payroll at Billing ay naghahanda lang ng datos.
 - Ang approval ng purchase: Finance kung ₱10,000 pababa, Admin kung lampas.
 
@@ -276,6 +281,15 @@ Ang cash advance na ibinigay ng Finance ay kusang lalabas dito.
 | Due date must be on or after the invoice date. | Ayusin ang due date. |
 | Invoice has collections and cannot be cancelled. | May bayad na ang invoice kaya hindi na pwedeng i-cancel. |
 | "... trip(s) have no waybill recorded yet. Please follow up." | Babala lang. Nagawa ang invoice, pero i-follow up ang waybill. |
+
+| Mensahe (billing draft) | Ibig sabihin at gagawin |
+| --- | --- |
+| The trip is not Completed yet | Hindi pa pwedeng i-finalize; hintayin ang Completed. |
+| Verify the required documents first. | Pindutin muna ang Verify documents. |
+| No waybill recorded for ... yet. | Ipa-record muna ang waybill (dispatcher o Billing sa Trip Records). |
+| Enter the rate first (Edit draft). | Walang rate; pindutin ang Edit at ilagay ang rate. |
+| Only a Draft can be edited | Finalized na; gamitin ang Return to draft kung kailangang itama. |
+| ... is not finalized | Sa invoice, finalized billings lang ang pwedeng isama. |
 
 ### Payroll
 

@@ -77,7 +77,7 @@ Pagka-login, **Operations Dashboard** agad ang lalabas. Ang mga dilaw na kahon s
 
 | Grupo sa sidebar | Pages |
 | --- | --- |
-| Fleet Management | Fleet Status & Trucks (tingin lang), Drivers, Helpers & Staff |
+| Fleet Management | Fleet Status & Trucks (tingin lang), Drivers & Helpers |
 | Trip & Dispatch | Dispatch Board, Trip Records & Waybills, Incidents |
 | Maintenance & Inspection | Maintenance (tingin lang) |
 | Financial & Billing | Trip Funds & Allowances, Clients, Routes & Rates |
@@ -131,7 +131,7 @@ Pagka-login, **Operations Dashboard** agad ang lalabas. Ang mga dilaw na kahon s
 | Gawain | Saan | Paano |
 | --- | --- | --- |
 | Bantayan ang incidents | Trip & Dispatch > Incidents | Makikita ang lahat ng report, ang assessment ng Motorpool at ang status ng trip |
-| Palitan ang availability ng driver o helper | Fleet Management > Drivers, Helpers & Staff | Pindutin ang **Set unavailable** o **Set available** |
+| Palitan ang availability ng driver o helper | Fleet Management > Drivers & Helpers | Pindutin ang **Set unavailable** o **Set available** |
 | Magdagdag ng route | Financial & Billing > Clients, Routes & Rates > Routes | Pindutin ang **Add route**, ilagay ang origin, destination, km at toll |
 | Hanapin ang lumang trip | Trip & Dispatch > Trip Records & Waybills | Gamitin ang search at filters, tapos **Details** |
 | Tingnan ang reports | Reports & Administration > Reports & Analytics | Piliin ang petsa at filters, i-download bilang CSV kung kailangan |
@@ -158,7 +158,7 @@ Pagka-login, ang **Dispatcher Dashboard** ang lalabas. Sa itaas ang mga alert ng
 
 | Grupo sa sidebar | Pages |
 | --- | --- |
-| Fleet Management | Fleet Status & Trucks, Drivers, Helpers & Staff (tingin lang) |
+| Fleet Management | Fleet Status & Trucks, Drivers & Helpers (tingin lang) |
 | Trip & Dispatch | Dispatch Board, Trip Records & Waybills, Incidents |
 | Financial & Billing | Trip Funds & Allowances |
 | Records | Documents |
@@ -211,7 +211,7 @@ Para sa car carrier, ang button ay **Trip details** (booking at units lang).
 
 1. Naka-disable (malabo) ang **Confirm Dispatch** hangga't hindi pa Ready for Dispatch ang trip at Released ang fund. Itapat ang mouse sa button para makita ang kulang.
 2. Kapag pareho nang tapos, magiging aktibo ang button. Pindutin ito kapag aalis na talaga ang truck, tapos **Confirm**.
-3. Magiging **Dispatched** ang trip at On Trip ang truck at crew.
+3. Magiging **Dispatched** ang trip at On Trip ang truck at crew. Kasabay nito, gagawa ang system ng billing draft para sa Billing, batay sa client rate ng route.
 
 ### F. Habang nasa daan
 

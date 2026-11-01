@@ -11,7 +11,7 @@ Ang **Mulawin FleetOps** (RP\_Mulawin\_FMS\_V2) ay web system ng R.P. Mulawin Tr
 | Bahagi | Gamit | Paliwanag |
 | --- | --- | --- |
 | Server language | PHP 8.2 o mas bago | Walang framework. Plain PHP na may `declare(strict_types=1)`. |
-| Database | MySQL o MariaDB (InnoDB, utf8mb4) | 43 tables. Konektado gamit ang PDO na may prepared statements. |
+| Database | MySQL o MariaDB (InnoDB, utf8mb4) | 44 tables. Konektado gamit ang PDO na may prepared statements. |
 | Web server | Apache (XAMPP sa local, Hostinger sa live) | Gumagamit ng `.htaccess` para harangin ang mga private folder. |
 | Frontend | Vanilla JavaScript (single-page app) | `core.js` at isang JS file bawat grupo ng pahina. Walang build step. |
 | UI library | Bootstrap 5.3.3 at Bootstrap Icons 1.11.3 | Naka-vendor sa `public/assets/vendor` (walang CDN). |
@@ -22,7 +22,7 @@ Ang **Mulawin FleetOps** (RP\_Mulawin\_FMS\_V2) ay web system ng R.P. Mulawin Tr
 
 - 11 backend modules, naka-grupo sa 5 department folders.
 - 10 roles, 22 na pahina.
-- 43 database tables (11 sa `schema.sql`, 32 sa `extension.sql`).
+- 44 database tables (11 sa `schema.sql`, 33 sa `extension.sql`).
 - Mga 7,200 na linya ng PHP at JavaScript (hindi kasama ang vendor libraries).
 
 ### Mga prinsipyo ng pagkakagawa
@@ -40,7 +40,7 @@ Ang mga module ay naka-grupo sa folders ayon sa department. Hindi ito nagbabago 
 
 | Department | Backend module (PHP) | Screen file (JS) | Mga pahina |
 | --- | --- | --- | --- |
-| Operations | `Operations/Fleet.php`, `Operations/Trips.php`, `Operations/Inspections/Checklist.php` | `operations/fleet.js`, `operations/trips.js` | Fleet Status & Trucks, Drivers Helpers & Staff, Dispatch Board, Trip Records & Waybills, Incidents |
+| Operations | `Operations/Fleet.php`, `Operations/Trips.php`, `Operations/Inspections/Checklist.php` | `operations/fleet.js`, `operations/trips.js` | Fleet Status & Trucks, Drivers & Helpers, Dispatch Board, Trip Records & Waybills, Incidents |
 | Maintenance | `Maintenance/Maintenance.php`, `Maintenance/Purchasing.php` | `maintenance/maintenance.js`, `maintenance/purchasing.js` | Maintenance, Parts Inventory, Purchasing |
 | Accounting | `Accounting/Funds.php`, `Finance.php`, `Billing.php`, `Payroll.php` | `accounting/finance.js`, `billing.js`, `payroll.js` | Trip Funds & Allowances, Finance & Payables, Billing & Collections, Clients Routes & Rates, Payroll, Attendance, Cash Advance & Balances |
 | General | `General/Analytics.php`, `General/Documents.php` | `general/dashboard.js`, `documents.js`, `reports.js` | Dashboard, Documents, Reports & Analytics |
@@ -70,11 +70,12 @@ RP_Mulawin_FMS_V2/
 │  └─ Modules/<Department>/<Module>.php
 ├─ config/formulas.php       # default values ng formulas (galing Excel at PDF)
 ├─ database/schema.sql       # 11 core tables
-├─ database/extension.sql    # 32 tables ng V2 workflow
+├─ database/extension.sql    # 33 tables ng V2 workflow
+├─ database/migrations/      # SQL para sa existing database (live)
 ├─ storage/backups/          # .sql backups
 ├─ storage/private/          # mga na-upload na documents
 ├─ scripts/                  # create_user.php, preflight.php
-├─ tests/                    # formula_test.php, e2e_workflow.py
+├─ tests/                    # formula_test.php, e2e_workflow.py, system_test.py
 └─ docs/                     # guides, traceability, test report
 ```
 
@@ -88,6 +89,8 @@ RP_Mulawin_FMS_V2/
 | `Money.php` | Payment details (method, cheque, bank, reference) at voucher number | Funds, Finance, Payroll |
 | `Notify.php` | Notification sa bell. Kapag pumalya, hindi napipigil ang pangunahing transaksyon. | Lahat |
 | `Settings.php` | Formula engine: binabasa ang `config/formulas.php` at ang mga binago sa Formula Settings | Trips, Fleet, Maintenance, Purchasing, Billing, Payroll, Documents, Analytics, Admin (at Funds sa TripFunds) |
+
+Dagdag (PDF 7): `Core/BillingDraft.php` gumagawa ng billing draft bawat trip sa Confirm Dispatch, gamit ang client rate ng route. Tinatawag ng Trips (dispatch, at complete kung wala pang draft). Kapag pumalya, hindi napipigil ang dispatch.
 
 ## 3. Architecture at request lifecycle
 
@@ -308,6 +311,20 @@ Ang "Tables" ay ang mga sinusulatan ng action (bukod sa `audit_events` at `notif
 | `Payroll.attendance_save` | Payroll | Attendance | attendance |
 | `Payroll.ledger_add` / `ledger_payment` / `ledger_installment` | Payroll | Cash advance, uniform, damages, cash bond | employee\_ledgers, ledger\_entries |
 
+**Billing drafts (PDF 7, idinagdag 2026-11-02)**
+
+| Action | Sino | Ginagawa | Tables |
+| --- | --- | --- | --- |
+| (system) sa `Trips.dispatch` | System | Billing draft ng trip batay sa client rate ng route | billing\_drafts |
+| `Billing.draft_update` | Billing | Ayusin ang basis, quantity, rate at description habang Draft | billing\_drafts |
+| `Billing.draft_verify` | Billing | Verified na ang required documents (kailangan may waybill) | billing\_drafts |
+| `Billing.draft_finalize` | Billing | Finalize: trip Completed + verified + may rate | billing\_drafts |
+| `Billing.draft_reopen` | Billing | Ibalik sa Draft ang finalized na hindi pa naka-invoice (may dahilan) | billing\_drafts |
+| `Billing.invoice_create` | Billing | Invoice mula sa finalized billings (`draft_ids`), hindi na tina-type ang rate | billings, billing\_items, billing\_drafts |
+| `Billing.invoice_cancel` | Billing | Cancel; babalik sa Finalized ang mga billing | billings, billing\_items, billing\_drafts |
+
+PDF 6: ang `Fleet.person_save` ay Driver o Helper na lang, wala nang Employee/Contractor at Active/Resigned sa screen. Para sa drivers at helpers lang ang Payroll at cash advance.
+
 **Administration: `Admin`** (General: `Analytics` ay read lang; `Documents` ay sa upload/download endpoint)
 
 | Action | Sino | Ginagawa | Tables |
@@ -362,7 +379,7 @@ Ang Scenario A ay diretso sa auto-assign (Pre-Assigned o Awaiting Resources). An
 ### D. Accounting: Finance, Billing at Payroll
 
 - **Finance:** expenses, payables at bayad, budgets, cash advance, at disbursement ng payroll. Lahat ng labas ng pera ay dumadaan sa `Money::paymentFields` at `Money::voucher`, kaya pare-pareho ang payment details at may voucher number.
-- **Billing:** invoice mula sa completed trips. Bawat linya: rate × quantity (Per Trip, Per Unit o Per KM). Net = gross − discount. Kapag walang waybill ang trip, nagagawa pa rin pero may babala. `collection_add` ang nagbabawas ng balance ng invoice.
+- **Billing:** invoice mula sa completed trips. Bawat linya: rate × quantity (Per Trip, Per Unit o Per KM). Net = gross − discount. Mula 2026-11-02 (PDF 7), galing ang invoice sa finalized billing drafts; kailangan Completed at verified ang documents (tingnan ang G). `collection_add` ang nagbabawas ng balance ng invoice.
 - **Payroll:** `period_create` ang kumukuha ng tao sa payroll group, attendance at completed trips na may waybill, tapos kinukuwenta ang bawat linya gamit ang `Settings` (tingnan ang section 9). `finalize` ang nagbabawas ng hulog sa `employee_ledgers`; `reopen` ang nagbabalik nito; `submit` ang nagpapasa sa Finance.
 
 ### E. General: Analytics at Documents
@@ -374,9 +391,19 @@ Ang Scenario A ay diretso sa auto-assign (Pre-Assigned o Awaiting Resources). An
 
 Users, Formula Settings (`app_settings` at `formula_items`), Activity Log (`audit_events`) at Backup (sinusulat ng PHP ang buong database bilang .sql sa `storage/backups`).
 
+### G. Billing draft (PDF 7)
+
+1. **Confirm Dispatch** (ongoing na ang trip): `BillingDraft::createFor` ang gumagawa ng draft. Rate = client rate ng client + route + truck type (route-specific muna, tapos "Any route"). Quantity: Per Trip = 1, Per Unit = units planned, Per KM = route km. Walang rate = draft pa rin, `rate` ay NULL.
+2. **Billing > Billing drafts**: Edit (habang Draft), **Verify documents** (kailangan may waybill), **Finalize** (trip Completed + verified + may rate).
+3. **Ready to invoice**: naka-grupo per client ang Finalized. Ang invoice ay gumagawa ng `billings` at `billing_items` mula sa drafts, tapos `Invoiced` na ang draft.
+4. **Cancel invoice**: binubura ang `billing_items` at bumabalik sa Finalized ang drafts.
+5. Isang draft lang bawat trip (`trip_id` UNIQUE), kahit may Second Attempt.
+
+Status: `Draft` → `Finalized` → `Invoiced` (at pabalik sa `Draft` gamit ang Return to draft, o sa `Finalized` kapag na-cancel ang invoice).
+
 ## 7. Database
 
-MySQL o MariaDB, InnoDB engine, `utf8mb4`. 43 tables: 11 sa `database/schema.sql` (core) at 32 sa `database/extension.sql` (V2 workflow). I-import nang magkasunod. May 68 na foreign keys, kaya hindi pwedeng mag-save ng record na tumuturo sa wala.
+MySQL o MariaDB, InnoDB engine, `utf8mb4`. 44 tables: 11 sa `database/schema.sql` (core) at 33 sa `database/extension.sql` (V2 workflow). I-import nang magkasunod. May 73 na foreign keys, kaya hindi pwedeng mag-save ng record na tumuturo sa wala.
 
 &#91;embedded content: pangunahing relationships · bawat linya ay foreign key\]
 
@@ -430,6 +457,12 @@ Sa kaliwa ang mga "master" na tinuturo ng trip; sa kanan ang mga record na ginag
 | Payroll | `ledger_entries` | Bawat bawas o bayad sa ledger | employee\_ledgers |
 | Records | `documents` | category, entity\_type, entity\_id, original\_filename, storage\_name, expires\_on | users |
 
+| Area | Table | Laman at mahahalagang columns | Nakakabit sa (FK) |
+| --- | --- | --- | --- |
+| Billing (PDF 7) | `billing_drafts` | Isang billing bawat trip: rate\_basis, quantity, rate, amount, status (Draft, Finalized, Invoiced), docs\_verified\_by/at, finalized\_by/at, billing\_id | trips, clients, users, billings |
+
+PDF 6: ang `personnel.person_type` ay Driver o Helper na lang. Nasa database pa ang `employment_type` at `employment_status` para sa lumang records, pero hindi na ipinapakita; laging `Active` ang bago.
+
 ### B. Mga patakaran sa data
 
 - **Pera** ay `DECIMAL`, hindi float, at ipinapasok bilang string mula sa `moneyField()`.
@@ -447,7 +480,7 @@ Bawat pahina ay may iisang `read()` sa module nito. Ang `Access.php` ang nagsasa
 | --- | --- | --- | --- |
 | Dashboard | `dashboard` | `Analytics::read` (iba bawat role) | Ayon sa role: trips, vehicles, personnel, maintenance\_jobs, fund\_requests, billings, collections, expenses, disbursements, payroll\_periods, payroll\_lines, parts, purchase\_requests, documents, audit\_events. Sumusulat din ng notifications (daily reminders). |
 | Fleet Status & Trucks | `fleet` | `Fleet::read` | vehicles, personnel (regular crew), trips (aktibong trip), maintenance\_jobs, vehicle\_status\_log, users |
-| Drivers, Helpers & Staff | `crew` | `Fleet::read` | personnel, trips, vehicles, clients |
+| Drivers & Helpers | `crew` | `Fleet::read` | personnel, trips, vehicles, clients |
 | Dispatch Board | `trips` | `Trips::read` | trips, clients, routes, vehicles, personnel, fund\_requests, inspections, trip\_updates, trip\_events, users. Checklist items mula sa `Inspections/Checklist.php`; fund categories mula sa formula\_items. |
 | Trip Records & Waybills | `trip_records` | `Trips::read` | trips, waybills, trip\_updates, trip\_events, inspections, fund\_requests, billing\_items, clients, vehicles, personnel, users. Billing at Payroll: Completed lang. Dispatcher: sariling team lang. |
 | Incidents | `incidents` | `Trips::read` | incidents, trips, vehicles, maintenance\_jobs, clients, users |
@@ -456,7 +489,7 @@ Bawat pahina ay may iisang `read()` sa module nito. Ang `Access.php` ang nagsasa
 | Purchasing | `purchasing` | `Purchasing::read` | purchase\_requests, purchase\_orders, parts, part\_requests, suppliers, budgets, vehicles, users |
 | Trip Funds & Allowances | `funds` | `Funds::read` | fund\_requests, trips, clients, vehicles, users (at formula\_items para sa categories) |
 | Finance & Payables | `finance` | `Finance::read` | expenses, accounts\_payable, suppliers, payment\_vouchers, disbursements, budgets, payroll\_periods, payroll\_lines, employee\_ledgers, personnel, vehicles, trips, users |
-| Billing & Collections | `billing` | `Billing::read` | trips (completed, hindi pa naka-bill), waybills, vehicles, billings, billing\_items, collections, clients, users |
+| Billing & Collections | `billing` | `Billing::read` | billing\_drafts, trips, waybills, vehicles, billings, billing\_items, collections, clients, users |
 | Clients, Routes & Rates | `clients` | `Billing::read` | clients, routes, client\_rates, billings, collections, trips |
 | Payroll | `payroll` | `Payroll::read` | payroll\_periods, payroll\_lines, personnel, trip\_pay\_rates, routes (at app\_settings at formula\_items para sa computation) |
 | Attendance | `attendance` | `Payroll::read` | personnel, attendance |
@@ -615,6 +648,8 @@ Nasubukan ito: sinadyang sirain ang `Accounting/Payroll.php`, at ang payroll ay 
 5. Patakbuhin ang `php scripts/preflight.php`. Dapat lahat PASS.
 6. Sa Hostinger: mas maganda kung ang document root ay `RP_Mulawin_FMS_V2/public`. Kung hindi pwede, pwede sa loob ng `public_html` dahil hinaharang ng `.htaccess` ang private folders. Gumamit ng HTTPS.
 
+**Update ng existing database (halimbawa ang live):** kapag may bagong file sa `database/migrations/`, i-import ito sa phpMyAdmin pagkatapos ng backup. Ngayon: `2026-11-02_billing_drafts.sql` (gumagawa ng `billing_drafts` at ng drafts para sa mga trip na nakaalis na o tapos na pero wala pang invoice). Ligtas itong i-import nang isang beses lang.
+
 ### C. Mga setting sa `.env`
 
 | Key | Gamit | Default |
@@ -640,10 +675,11 @@ Huwag i-upload sa GitHub ang `.env` (nasa `.gitignore`).
 | `scripts/preflight.php` | PHP version at extensions, `.env`, writable folders, bawat module ay naglo-load, mga table | `php scripts/preflight.php` |
 | `tests/formula_test.php` | 15 checks laban sa Excel (P&L, fund categories, payroll) | `php tests/formula_test.php` (sa bagong database) |
 | `tests/e2e_workflow.py` | Buong workflow sa API, lahat ng 10 roles, Scenario A, B at C | `python3 tests/e2e_workflow.py` \<temporary password ng admin1> (sa empty na TEST database lang) |
+| `tests/system_test.py` | Automated system test para sa tester: XAMPP o Hostinger test copy. Login bilang Admin, gumagawa ng test account kada role kung wala, buong workflow at negative tests sa API, restore ng settings, browser click-through ng bawat page at tab ng 10 roles na may screenshots, HTML report (tests/reports/). Huling run: 404 checks, 0 failures. | `tests\run_system_test.bat` o `python tests/system_test.py` (kailangan: pip install requests playwright; python -m playwright install chromium). Guide: tests/SYSTEM\_TEST\_GUIDE.md. TEST COPY LANG. |
 
 Ang e2e test ay kailangan ng Python `requests`, tumatakbong app sa `FMS_URL`, at ng `mysql` command line.
 
-Huling resulta (nasa `docs/TEST_REPORT.md`): preflight PASS, formula 15/15, e2e 191 checks at 0 failures, at bawat pahina ng bawat role sa browser ay walang error.
+Huling resulta (nasa `docs/TEST_REPORT.md`): preflight PASS, formula 15/15, e2e 205 checks at 0 failures, at bawat pahina ng bawat role sa browser ay walang error.
 
 ### F. Paano magdagdag o magbago
 

@@ -120,7 +120,7 @@ Ang ₱10,000 pababa ay Finance ang nag-a-approve.
 ### B. Mga trucks at tao (Admin lang)
 
 1. **Fleet Management > Fleet Status & Trucks**, tapos **Add truck**. Ilagay ang Plate number, Truck / unit no., Truck type, Make / brand, Model, Engine at Chassis no., OR/CR at MV file no., registration at insurance, at Current odometer. **Save**.
-2. **Fleet Management > Drivers, Helpers & Staff**, tapos **Add person**. Ilagay ang Full name, Position, Employee / contractor no., Contact number, License expiry at Date hired. **Save**.
+2. **Fleet Management > Drivers & Helpers**, tapos **Add driver / helper**. Ilagay ang Full name, ID no., Position (Driver o Helper), Contact number, Date hired at License expiry (required sa driver). Drivers at helpers lang ang nasa system (PDF v6). Kapag hindi na pwedeng gamitin ang tao, gawing Unavailable. **Save**.
 3. **Edit** para baguhin ang detalye. Sa mga tao, may **Pay info** din (daily rate, pay frequency, payroll group).
 
 Pwede ring mag-dagdag ang Admin ng clients, routes at rates sa **Financial & Billing > Clients, Routes & Rates**.

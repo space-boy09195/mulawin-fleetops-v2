@@ -18,6 +18,8 @@ updated na bersyon 2 ng PDF), and the **formulas of the company Excel files**
 4. Piliin ang database, tapos **Import** sa ganitong ayos:
    1. `database/schema.sql`
    2. `database/extension.sql`
+   (Ang `database/migrations/` ay para lang sa existing na database na ina-update, halimbawa ang live.
+   Hindi ito kailangan sa bagong install.)
 5. I-copy ang `.env.example` at gawing `.env` (nasa mismong project folder). Sa default XAMPP:
    `DB_HOST=127.0.0.1`, `DB_PORT=3306`, `DB_NAME=mulawin_v2`, `DB_USER=root`, `DB_PASS=` (blank).
 6. Gumawa ng **unang Admin account** (pumili ng isa):
@@ -30,6 +32,8 @@ updated na bersyon 2 ng PDF), and the **formulas of the company Excel files**
 7. Buksan ang `http://localhost/RP_Mulawin_FMS_V2/` (diretso ito sa `public/`) at mag-login.
 8. Optional check: `C:\xampp\php\php.exe scripts\preflight.php` (lahat dapat PASS) at
    `C:\xampp\php\php.exe tests\formula_test.php` (formula vs Excel).
+9. Optional na buong automated test (TEST COPY LANG, XAMPP o Hostinger): `tests\run_system_test.bat`.
+   Basahin muna ang `tests/SYSTEM_TEST_GUIDE.md`.
 
 ### Unang setup sa loob ng system (ayon sa role)
 
@@ -37,7 +41,7 @@ updated na bersyon 2 ng PDF), and the **formulas of the company Excel files**
 |---|---|---|
 | Admin | Reports & Administration > User Accounts | Gumawa ng account kada empleyado at role |
 | Admin | Fleet Management > Fleet Status & Trucks | Ilagay ang trucks (OR/CR, insurance, expiry, regular driver/helper) |
-| Admin | Fleet Management > Drivers, Helpers & Staff | Ilagay ang drivers (may license expiry), helpers, admin staff, PDI |
+| Admin | Fleet Management > Drivers & Helpers | Ilagay ang drivers (may license expiry) at helpers (PDF v6: drivers at helpers lang) |
 | Billing | Financial & Billing > Clients, Routes & Rates | Clients, routes (total km + RFID/toll), client rates |
 | Finance | Finance & Payables > Record > Budget | Purchasing budget (kailangan bago ma-approve ang purchase) |
 | Payroll | Payroll > Trip pay rates | Trip pay rate kada destination (driver at helper) |
@@ -102,6 +106,7 @@ backend/Modules/<Department>/  modules naka-grupo ayon sa department (folder lan
   Administration/              Admin.php (users, formula settings, activity log, backup)
 public/index.php               the only browser entry point (HTML shell + JSON API)
 public/assets/js/core.js       shell, router, tables, forms, charts
+public/assets/js/i18n.js       wika ng screen (English o Tagalog); salin sa public/assets/js/i18n/tl.js
 public/assets/js/modules/<department>/   screen files, parehong grupo:
   operations/                  fleet.js, trips.js
   maintenance/                 maintenance.js, purchasing.js
@@ -112,7 +117,7 @@ public/assets/css/             layout.css + login.css (from the repo) and app.cs
 database/schema.sql            core tables          database/extension.sql   module tables
 scripts/                       create_user.php, preflight.php
 storage/private/               uploaded documents (not public)   storage/backups/   SQL backups
-tests/                         formula_test.php, e2e_workflow.py
+tests/                         formula_test.php, e2e_workflow.py, system_test.py (automated test, see SYSTEM_TEST_GUIDE.md)
 docs/                          traceability, pending decisions, formula guide, test report
 ```
 
@@ -130,6 +135,12 @@ screen file, idagdag sa `$jsModules` ng `public/index.php`.
 
 **Mga gabay:** may hiwalay na user guide bawat department (Operations, Maintenance, Accounting) at para sa
 Admin at Audit, at isang Technical Documentation (architecture, API, database, data sources, security).
+
+## E0. Wika ng screen (English o Tagalog)
+
+Bawat user ay pipili sa dropdown ng pangalan niya (kanang itaas, kung nasaan ang Log Out): **English** (default) o
+**Tagalog**. Naka-save ito sa account. Hindi isinasalin ang mga pangalan ng page, mga status at termino ng PDF at Excel,
+at ang mga printout. Para magpalit o magdagdag ng salin: i-edit ang `public/assets/js/i18n/tl.js` (English ⇒ Tagalog).
 
 ## E. Pagbago ng formula (kahit hindi marunong mag-code)
 

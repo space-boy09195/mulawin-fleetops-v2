@@ -64,6 +64,7 @@ final class Admin {
             'items_reset' => self::itemsReset($u, $d),
             'backup_create' => self::backupCreate($u),
             'notifications_read' => self::notificationsRead($u, $d),
+            'set_language' => self::setLanguage($u, $d),
             default => throw new BusinessRuleException('Unknown admin action.', 404),
         };
     }
@@ -233,6 +234,18 @@ final class Admin {
         fclose($fh);
         audit($p, $u['id'], 'Backup', $name, 'database backup created');
         return ['file' => $name, 'message' => 'Backup created. Download it and keep a copy outside this computer. Also copy the storage/private folder (uploaded files).'];
+    }
+
+    /** Wika ng screen ng sariling account (English ang default). Lahat ng role ay pwedeng magpalit para sa sarili. */
+    private static function setLanguage(array $u, array $d): array {
+        $lang = choiceField($d, 'language', ['en', 'tl']);
+        try {
+            run(db(), 'UPDATE users SET language=? WHERE id=?', [$lang, $u['id']]);
+        } catch (Throwable $e) {
+            error_log('set_language: ' . $e->getMessage());
+            throw new BusinessRuleException('Language setting is not ready. Ask the Admin to import database/migrations/2026-11-03_user_language.sql.', 409);
+        }
+        return ['language' => $lang, 'message' => $lang === 'tl' ? 'Tagalog na ang screen.' : 'The screen is now in English.'];
     }
 
     private static function notificationsRead(array $u, array $d): array {

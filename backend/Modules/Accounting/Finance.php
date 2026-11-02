@@ -43,7 +43,7 @@ final class Finance {
                 FROM payroll_periods pp WHERE pp.status IN ('Submitted to Finance','Disbursed') ORDER BY FIELD(pp.status,'Submitted to Finance','Disbursed'), pp.id DESC LIMIT 100"),
             'cashFlow' => fn() => self::cashFlow($p, $from, $to),
             'suppliers' => fn() => many($p, 'SELECT id, name FROM suppliers WHERE active=1 ORDER BY name'),
-            'personnel' => fn() => many($p, "SELECT id, full_name, person_type FROM personnel WHERE employment_status='Active' ORDER BY full_name"),
+            'personnel' => fn() => many($p, "SELECT id, full_name, person_type FROM personnel WHERE employment_status='Active' AND person_type IN ('Driver','Helper') ORDER BY full_name"),
             'vehicles' => fn() => many($p, 'SELECT id, plate_number FROM vehicles ORDER BY plate_number'),
             'trips' => fn() => many($p, "SELECT id, trip_ref FROM trips WHERE status NOT IN ('Cancelled','Rejected') ORDER BY id DESC LIMIT 500"),
         ]);
@@ -153,7 +153,7 @@ final class Finance {
         $purpose = field($d, 'purpose', 255); $pay = Money::paymentFields($d);
         must((float)$inst <= (float)$amount, 'Installment cannot be more than the amount.');
         return transaction(function (PDO $p) use ($u, $person, $amount, $inst, $purpose, $pay) {
-            $pe = one($p, "SELECT full_name FROM personnel WHERE id=? AND employment_status='Active'", [$person]);
+            $pe = one($p, "SELECT full_name FROM personnel WHERE id=? AND employment_status='Active' AND person_type IN ('Driver','Helper')", [$person]);
             must((bool)$pe, 'Employee not found.');
             $lid = insert($p, 'employee_ledgers', ['personnel_id' => $person, 'ledger_type' => 'Cash Advance', 'description' => $purpose, 'total_amount' => $amount,
                 'installment' => $inst, 'balance' => $amount, 'source' => 'Finance', 'created_by' => $u['id']]);

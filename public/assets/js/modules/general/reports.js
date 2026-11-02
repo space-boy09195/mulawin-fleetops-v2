@@ -8,7 +8,10 @@ App.page('reports', {
   render(ctx) {
     const d = ctx.data, f = d.filters || {}, q = { ...d.range, ...ctx.query };
     const opts = (rows, key) => UI.opts(rows, r => r[key]);
-    ctx.tools.innerHTML = '<button class="btn btn-sm btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>';
+    // Print: ang nakabukas na section o lahat ng sections (may header, period at filters).
+    ctx.tools.innerHTML = `<div class="dropdown"><button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" type="button" id="repPrint"><i class="bi bi-printer"></i> Print</button>
+      <div class="dropdown-menu dropdown-menu-end"><button class="dropdown-item" type="button" data-print="one"><i class="bi bi-file-earmark me-2"></i>Print this section</button>
+      <button class="dropdown-item" type="button" data-print="all"><i class="bi bi-files me-2"></i>Print all sections</button></div></div>`;
     // Laging kita: period at group by. Ang ibang filters ay nasa "More filters" (bukas kapag may gamit).
     const more = ['truck_type', 'status', 'client_id', 'vehicle_id', 'driver_id', 'dispatcher_id'].filter(k => ctx.query[k]).length;
     ctx.el.innerHTML = `<div class="card mb-3 no-print report-filters"><div class="card-body-custom"><form id="repForm"><div class="row g-2 align-items-end">${[
@@ -40,10 +43,24 @@ App.page('reports', {
     };
     form.onsubmit = (e) => { e.preventDefault(); const v = UI.formData(form); delete v.preset; Object.keys(v).forEach(k => v[k] === '' && delete v[k]); ctx.go('reports', v); };
     document.getElementById('repClear').onclick = () => ctx.go('reports', {});
+    // Buod ng period at filters (para alam agad kung ano ang tinitingnan, at kasama sa print).
+    const nameOf = (rows, id, key) => ((rows || []).find(r => String(r.id) === String(id)) || {})[key] || id;
+    const groupLbl = { day: 'Daily', week: 'Weekly', month: 'Monthly' }[d.range.group || q.group] || '';
+    const chips = [groupLbl && ['Group by', groupLbl], q.truck_type && ['Truck type', q.truck_type], q.status && ['Status', q.status],
+      q.client_id && ['Client', nameOf(f.clients, q.client_id, 'name')], q.vehicle_id && ['Truck', nameOf(f.vehicles, q.vehicle_id, 'plate_number')],
+      q.driver_id && ['Driver / helper', nameOf(f.crew, q.driver_id, 'full_name')], q.dispatcher_id && ['Dispatcher', nameOf(f.dispatchers, q.dispatcher_id, 'full_name')]].filter(Boolean);
+    const period = `${UI.date(d.range.from)} to ${UI.date(d.range.to)}`;
+    const filterText = chips.map(([k, v]) => `${k}: ${v}`).join(' · ');
     const body = document.getElementById('repBody');
     // Isang tab bawat section (Trips, Fleet, Money, Payroll, Stock ayon sa role) para hindi mahaba ang page.
-    body.innerHTML = `<div class="small text-muted mb-2">Period: <b>${UI.date(d.range.from)}</b> to <b>${UI.date(d.range.to)}</b></div>`;
+    body.innerHTML = `<div class="report-summary text-muted mb-2" id="repSummary">Showing: <b>${UI.esc(period)}</b>${chips.map(([k, v]) => ` <span class="badge text-bg-light border ms-1">${UI.esc(k)}: ${UI.esc(v)}</span>`).join('')}</div>`;
     const sections = d.sections || [];
+    ctx.tools.querySelectorAll('[data-print]').forEach(b => b.onclick = () => {
+      if (!sections.length) return UI.toast('Nothing to print for your role.', 'warn');
+      const cur = sessionStorage.getItem('tab:reports');
+      const pick = b.dataset.print === 'all' ? sections : [sections.find(s => s.title === cur) || sections[0]];
+      UI.printReport(pick, { title: 'Reports & Analytics' + (pick.length === 1 ? ': ' + pick[0].title : ''), period, filters: filterText });
+    });
     if (!sections.length) { body.insertAdjacentHTML('beforeend', '<div class="table-empty">No report sections for your role.</div>'); return; }
     UI.tabs(body, sections.map((s, i) => [s.title, `<i class="bi ${s.icon} me-1"></i>${UI.esc(s.title)}`,
       () => `${s.note ? `<div class="section-note mt-0">${UI.esc(s.note)}</div>` : ''}${UI.blocks(s, { key: s.title })}`]));

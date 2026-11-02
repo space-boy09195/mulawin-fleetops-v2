@@ -4,29 +4,35 @@
 
 App.page('billing', {
   title: 'Billing & Collections',
-  subtitle: 'Completed trips not yet billed, invoices (one invoice can cover many trips), collections and outstanding balances.',
+  subtitle: 'Billing drafts (made by the system when a trip is ongoing), finalized billings, invoices (one invoice can cover many trips), collections and outstanding balances.',
   render(ctx) {
     const d = ctx.data, e = d.can.edit, inv = d.invoices || [];
     const bal = (b) => b.status === 'Cancelled' ? 0 : +b.net_amount - +b.collected;
+    const drafts = d.drafts || [];
+    const fin = drafts.filter(x => x.status === 'Finalized');
+    // Bagong PDF v7: pwedeng i-finalize kapag Completed na ang trip AT verified na ang documents.
+    const blocker = (x) => x.trip_status !== 'Completed' ? 'Trip is ' + x.trip_status + ' (needs Completed)'
+      : !x.docs_verified_at ? 'Verify the documents first' : !(+x.amount > 0) ? 'Enter the rate first (Edit)' : '';
+    const editDraft = (x) => UI.formModal('Edit billing draft — ' + UI.esc(x.trip_ref), [{ name: 'draft_id', type: 'hidden', value: x.id },
+      { name: 'rate_basis', label: 'Basis', type: 'select', required: true, options: UI.list(['Per Trip', 'Per Unit', 'Per KM']), value: x.rate_basis || 'Per Trip', placeholder: false, col: 4 },
+      { name: 'quantity', label: 'Quantity', type: 'number', step: '0.01', required: true, value: x.quantity, col: 4, help: x.units_delivered ? 'Units delivered: ' + x.units_delivered : (x.distance_km ? 'Route km: ' + x.distance_km : '') },
+      { name: 'rate', label: 'Rate (PHP)', type: 'money', required: true, value: x.rate ?? '', col: 4, help: x.rate === null ? 'No client rate for this route yet.' : 'From the client rate of the route.' },
+      { name: 'description', label: 'Description', value: x.description, col: 12 }], 'Billing.draft_update', { intro: 'Amount = rate × quantity.' });
     const newInvoice = (clientId) => {
-      const trips = (d.unbilled || []).filter(t => !clientId || +t.client_id === +clientId);
+      const lines = fin.filter(x => +x.client_id === +clientId);
       const client = (d.clients || []).find(c => +c.id === +clientId);
-      const rows = trips.map(t => `<tr><td><input type="checkbox" name="pick_${t.id}" value="1" checked></td><td>${UI.esc(t.trip_ref)}</td><td>${UI.esc(t.origin)} → ${UI.esc(t.destination)}</td>
-        <td>${UI.date(t.completed_at)}</td><td>${UI.esc(t.waybills || '—')}${t.waybills ? '' : ' <span class="badge-s red">no waybill</span>'}</td>
-        <td><select class="form-select form-select-sm" name="basis_${t.id}"><option>Per Trip</option><option>Per Unit</option><option>Per KM</option></select></td>
-        <td><input class="form-control form-control-sm" type="number" step="0.01" min="0" name="qty_${t.id}" value="1" style="width:80px"></td>
-        <td><input class="form-control form-control-sm" type="number" step="0.01" min="0" name="rate_${t.id}" value="${t.client_rate ?? ''}" placeholder="rate" style="width:120px"></td></tr>`).join('');
+      const rows = lines.map(x => `<tr><td><input type="checkbox" name="pick_${x.id}" value="1" checked></td><td>${UI.esc(x.trip_ref)}</td><td>${UI.esc(x.origin)} → ${UI.esc(x.destination)}</td>
+        <td>${UI.date(x.completed_at)}</td><td>${UI.esc(x.waybills || '—')}</td><td>${UI.esc(x.rate_basis)}</td><td class="num">${UI.num(x.quantity, 2)}</td><td class="num">${UI.money(x.rate)}</td><td class="num">${UI.money(x.amount)}</td></tr>`).join('');
       UI.modal('New invoice — ' + UI.esc(client?.name || ''), UI.fields([
         { name: 'invoice_number', label: 'Invoice no.', required: true, col: 4 }, { name: 'invoice_date', label: 'Invoice date', type: 'date', required: true, value: UI.today(), col: 4 },
         { name: 'due_date', label: 'Due date', type: 'date', col: 4, help: 'Blank = invoice date + ' + (client?.payment_terms_days ?? d.defaultTerms) + ' days (payment terms)' },
         { name: 'discount', label: 'Discount (PHP)', type: 'money', value: 0, col: 4 }, { name: 'notes', label: 'Notes', col: 8 }]) +
-        `<h6 class="mt-3">Completed trips of this client</h6><div class="table-wrap"><table class="data-table"><thead><tr><th></th><th>Trip</th><th>Route</th><th>Completed</th><th>Waybill</th><th>Basis</th><th>Qty</th><th>Rate</th></tr></thead><tbody>${rows}</tbody></table></div>
-         <p class="small text-muted mt-2">The rate comes from the client rate card when one exists. Amount = rate × qty.</p>`,
+        `<h6 class="mt-3">Finalized billings of this client</h6><div class="table-wrap"><table class="data-table"><thead><tr><th></th><th>Trip</th><th>Route</th><th>Completed</th><th>Waybill</th><th>Basis</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead><tbody>${rows}</tbody></table></div>
+         <p class="small text-muted mt-2">The amounts come from the finalized billings. To change one, return it to Draft first.</p>`,
         async (x) => {
-          const items = trips.filter(t => +x['pick_' + t.id]).map(t => ({ trip_id: t.id, rate: x['rate_' + t.id], quantity: x['qty_' + t.id], rate_basis: x['basis_' + t.id] }));
-          if (!items.length) throw new Error('Choose at least one trip.');
-          if (items.some(i => !i.rate)) throw new Error('Enter the rate of every chosen trip.');
-          UI.result(await App.api('Billing.invoice_create', { client_id: clientId, invoice_number: x.invoice_number, invoice_date: x.invoice_date, due_date: x.due_date, discount: x.discount, notes: x.notes, items }));
+          const ids = lines.filter(l => +x['pick_' + l.id]).map(l => l.id);
+          if (!ids.length) throw new Error('Choose at least one billing.');
+          UI.result(await App.api('Billing.invoice_create', { client_id: clientId, invoice_number: x.invoice_number, invoice_date: x.invoice_date, due_date: x.due_date, discount: x.discount, notes: x.notes, draft_ids: ids }));
           App.route();
         }, { size: 'modal-xl', submit: 'Issue invoice' });
     };
@@ -40,14 +46,16 @@ App.page('billing', {
         <tr><td colspan="5">Gross</td><td>${UI.money(b.gross_amount)}</td></tr><tr><td colspan="5">Less discount</td><td>${UI.money(b.discount)}</td></tr><tr><td colspan="5"><b>Total due</b></td><td><b>${UI.money(b.net_amount)}</b></td></tr></table>
         <div class="d-flex justify-content-between mt-4"><div class="sig">Prepared by</div><div class="sig">Received by</div></div></div>`);
     };
-    // Unbilled trips grouped by client
+    // Finalized billings grouped by client (handa nang i-invoice)
     const groups = {};
-    (d.unbilled || []).forEach(t => { (groups[t.client_id] = groups[t.client_id] || { client_id: t.client_id, client: t.client, trips: 0, est: 0 }); groups[t.client_id].trips++; groups[t.client_id].est += +(t.client_rate || 0); });
+    fin.forEach(x => { (groups[x.client_id] = groups[x.client_id] || { client_id: x.client_id, client: x.client, trips: 0, total: 0 }); groups[x.client_id].trips++; groups[x.client_id].total += +(x.amount || 0); });
     const byClient = {};
     inv.filter(b => b.status !== 'Cancelled').forEach(b => { const k = b.client; byClient[k] = byClient[k] || { client: k, billed: 0, collected: 0, outstanding: 0, overdue: 0 };
       byClient[k].billed += +b.net_amount; byClient[k].collected += +b.collected; byClient[k].outstanding += bal(b); if (+b.days_overdue > 0) byClient[k].overdue += bal(b); });
     ctx.el.innerHTML = UI.cards([
-      { label: 'Completed trips awaiting billing', value: (d.unbilled || []).length, icon: 'bi-hourglass-split', color: 'amber' },
+      { label: 'Billing drafts (trip ongoing)', value: drafts.filter(x => x.status === 'Draft' && x.trip_status !== 'Completed').length, icon: 'bi-pencil-square', color: 'blue' },
+      { label: 'Completed trips awaiting billing', value: drafts.filter(x => x.trip_status === 'Completed').length, icon: 'bi-hourglass-split', color: 'amber' },
+      { label: 'Finalized, ready to invoice', value: fin.length, icon: 'bi-check2-square', color: 'green' },
       { label: 'Invoices issued', value: inv.filter(b => b.status !== 'Cancelled').length, icon: 'bi-receipt', color: 'blue' },
       { label: 'Total billed', value: inv.filter(b => b.status !== 'Cancelled').reduce((s, b) => s + +b.net_amount, 0), format: 'money', icon: 'bi-cash', color: 'blue' },
       { label: 'Collections received', value: (d.collections || []).reduce((s, c) => s + +c.amount, 0), format: 'money', icon: 'bi-cash-coin', color: 'green' },
@@ -55,10 +63,27 @@ App.page('billing', {
       { label: 'Overdue', value: inv.filter(b => +b.days_overdue > 0).reduce((s, b) => s + bal(b), 0), format: 'money', icon: 'bi-alarm', color: 'red' },
     ]);
     UI.tabs(ctx.el, [
-      ['unbilled', 'Not yet billed', () => UI.table([['Client', 'client'], ['Completed trips', 'trips'], ['Expected amount (rate card)', 'est', 'money']], Object.values(groups), {
-        id: 'ub', title: 'Completed trips not yet billed, per client', actions: e ? () => UI.btn('inv', 'Create invoice', 'primary', 'bi-receipt') : null, onAction: (a, g) => newInvoice(g.client_id) }) +
-        UI.table([['Trip', 'trip_ref'], ['Client', 'client'], ['Type', 'truck_type'], ['Route', 'destination', (x, r) => UI.esc(r.origin) + ' → ' + UI.esc(x)], ['Truck', 'plate_number'], ['Completed', 'completed_at', 'datetime'],
-          ['Units', 'units_delivered'], ['Waybill', 'waybills', (x) => x ? UI.esc(x) : '<span class="badge-s red">missing</span>'], ['Waybill submitted', 'waybill_submitted', 'date'], ['Rate card', 'client_rate', 'money']], d.unbilled, { id: 'ubt', title: 'Trip list' })],
+      ['drafts', 'Billing drafts', () => `<div class="alert alert-info small">The system makes a billing draft when a trip is dispatched (ongoing), using the client rate of the route.
+        <b>Finalize</b> is allowed only when the trip is <b>Completed</b> and its documents (waybill) are <b>verified</b>.</div>` +
+        UI.table([['Trip', 'trip_ref'], ['Client', 'client'], ['Trip status', 'trip_status', 'badge'], ['Route', 'destination', (x, r) => UI.esc(r.origin) + ' → ' + UI.esc(x)], ['Truck', 'plate_number'],
+          ['Waybill', 'waybills', (x) => x ? UI.esc(x) : '<span class="badge-s red">none yet</span>'], ['Documents', 'docs_verified_at', (x, r) => x ? `<span class="badge-s green">Verified</span> <span class="small text-muted">${UI.esc(r.verified_by_name || '')}</span>` : '<span class="badge-s amber">Not verified</span>'],
+          ['Basis', 'rate_basis'], ['Qty', 'quantity', 'num'], ['Rate', 'rate', (x) => x === null ? '<span class="badge-s red">no rate</span>' : UI.money(x)], ['Amount', 'amount', 'money'], ['Billing status', 'status', 'badge']], drafts, {
+          id: 'drafts', title: 'Billing drafts and finalized billings', empty: 'No billing drafts yet. They appear when a trip is dispatched.',
+          actions: e ? (x) => x.status === 'Draft'
+            ? UI.btn('edit', 'Edit', 'outline-primary') + (!x.docs_verified_at && +x.waybill_count > 0 ? UI.btn('verify', 'Verify documents', 'outline-success') : '')
+              + (blocker(x) ? `<button class="btn btn-sm btn-outline-secondary" disabled title="${UI.esc(blocker(x))}">Finalize</button>` : UI.btn('final', 'Finalize', 'success'))
+            : UI.btn('reopen', 'Return to draft', 'outline-danger') : null,
+          onAction(act, x) {
+            if (act === 'edit') editDraft(x);
+            if (act === 'verify') UI.confirmAction('Verify documents', `Waybill of <b>${UI.esc(x.trip_ref)}</b>: ${UI.esc(x.waybills)}. Mark the required documents as verified?`, 'Billing.draft_verify', { draft_id: x.id },
+              { submit: 'Verify', fields: [{ name: 'docs_note', label: 'Note (optional)', col: 12 }] });
+            if (act === 'final') UI.confirmAction('Finalize billing', `Finalize <b>${UI.esc(x.trip_ref)}</b> for ${UI.money(x.amount)}? It will be ready for the invoice.`, 'Billing.draft_finalize', { draft_id: x.id }, { submit: 'Finalize' });
+            if (act === 'reopen') UI.confirmAction('Return to draft', `Return <b>${UI.esc(x.trip_ref)}</b> to Draft so it can be corrected?`, 'Billing.draft_reopen', { draft_id: x.id },
+              { danger: true, fields: [{ name: 'reason', label: 'Reason', required: true, col: 12 }] });
+          } })],
+      ['ready', 'Ready to invoice', () => UI.table([['Client', 'client'], ['Finalized trips', 'trips'], ['Total amount', 'total', 'money']], Object.values(groups), {
+        id: 'ub', title: 'Finalized billings per client', empty: 'No finalized billings yet. Finalize a billing draft first.',
+        actions: e ? () => UI.btn('inv', 'Create invoice', 'primary', 'bi-receipt') : null, onAction: (a, g) => newInvoice(g.client_id) })],
       ['inv', 'Invoices', () => UI.table([['Invoice', 'invoice_number'], ['Client', 'client'], ['Date', 'invoice_date', 'date'], ['Due', 'due_date', 'date'], ['Trips', 'trip_count'], ['Net amount', 'net_amount', 'money'],
         ['Collected', 'collected', 'money'], ['Balance', 'net_amount', (x, r) => UI.money(bal(r))], ['Overdue', 'days_overdue', (x, r) => bal(r) > 0 && +x > 0 ? `<span class="badge-s red">${x} days</span>` : '—'], ['Status', 'status', 'badge']], inv, {
         id: 'inv', actions: (b) => UI.btn('items', 'Trips', 'outline-secondary') + UI.btn('print', 'Print', 'outline-secondary', 'bi-printer') +
@@ -70,7 +95,7 @@ App.page('billing', {
             { name: 'amount', label: 'Amount (PHP)', type: 'money', required: true, value: bal(b).toFixed(2), col: 4 }, { name: 'payment_date', label: 'Payment date', type: 'date', required: true, value: UI.today(), col: 4 },
             { name: 'payment_method', label: 'Method', type: 'select', required: true, options: UI.list(['Cash', 'Cheque', 'Bank Transfer', 'E-wallet', 'Other']), col: 4 },
             { name: 'reference', label: 'OR / reference no.', required: true, col: 4 }, { name: 'cheque_number', label: 'Cheque no.', col: 4 }, { name: 'bank_name', label: 'Bank', col: 4 }], 'Billing.collection_add', { intro: 'Balance: ' + UI.money(bal(b)) + '. Partial payments are allowed.' });
-          if (act === 'cancel') UI.confirmAction('Cancel invoice', 'Cancel ' + UI.esc(b.invoice_number) + '? Its trips can be billed again.', 'Billing.invoice_cancel', { billing_id: b.id }, { danger: true, fields: [{ name: 'reason', label: 'Reason', required: true, col: 12 }] });
+          if (act === 'cancel') UI.confirmAction('Cancel invoice', 'Cancel ' + UI.esc(b.invoice_number) + '? Its billings go back to Finalized and can be invoiced again.', 'Billing.invoice_cancel', { billing_id: b.id }, { danger: true, fields: [{ name: 'reason', label: 'Reason', required: true, col: 12 }] });
         } })],
       ['col', 'Collections', () => UI.table([['Date', 'payment_date', 'date'], ['Invoice', 'invoice_number'], ['Client', 'client'], ['Amount', 'amount', 'money'], ['Method', 'payment_method'], ['Reference', 'reference'], ['Cheque', 'cheque_number'], ['Bank', 'bank_name'], ['By', 'recorded_by_name']], d.collections, { id: 'cols', title: 'Collections' })],
       ['ar', 'Receivables by client', () => UI.table([['Client', 'client'], ['Billed', 'billed', 'money'], ['Collected', 'collected', 'money'], ['Outstanding', 'outstanding', 'money'], ['Overdue', 'overdue', 'money']], Object.values(byClient), { id: 'ar', title: 'Billing and collection history by client' })],

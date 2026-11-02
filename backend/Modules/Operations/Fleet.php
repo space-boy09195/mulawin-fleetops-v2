@@ -5,11 +5,16 @@
  * =====================================================================
  *  FMS PDF II.B Fleet Management and II.C Driver and Helper Management.
  *    - Admin keeps truck records (OR/CR, insurance, expiry dates) and
- *      the driver / helper / staff records.
+ *      the driver and helper records.
+ *    - Bagong FMS PDF v6 (II.C): drivers at helpers lang. Inalis sa screen ang
+ *      Admin Staff / PDI Personnel, ang "Employee o Contractor" at ang
+ *      active / resigned records. Available / Unavailable na lang ang gamit.
+ *      (Nasa database pa ang employment_type at employment_status para hindi
+ *      masira ang lumang records; laging 'Active' ang bago.)
  *    - Motorpool updates truck status: Available or Under Maintenance
  *      (PDF p.18 "motorpool custodian can modify / update truck status").
  *    - Payroll updates only the pay fields (daily rate, payroll group).
- *    - Operations Head sees fleet status, availability and staffing.
+ *    - Operations Head sees fleet status and availability.
  *
  *  Every module has the same two entry points:
  *    read($user, $page, $query)    -> data for a page
@@ -21,7 +26,7 @@ core('FleetState');
 core('Settings');
 
 final class Fleet {
-    public const PERSON_TYPES = ['Driver', 'Helper', 'Admin Staff', 'PDI Personnel'];
+    public const PERSON_TYPES = ['Driver', 'Helper'];   // PDF v6: drivers at helpers lang
 
     // -----------------------------------------------------------------
     // READ
@@ -58,7 +63,8 @@ final class Fleet {
                     (SELECT v.plate_number FROM vehicles v WHERE v.assigned_driver_id=pe.id OR v.assigned_helper_id=pe.id LIMIT 1) AS assigned_truck,
                     (SELECT COUNT(*) FROM trips t WHERE (t.driver_id=pe.id OR t.driver2_id=pe.id OR t.helper_id=pe.id) AND t.status='Completed') AS total_trips,
                     (SELECT COUNT(*) FROM trips t WHERE (t.driver_id=pe.id OR t.driver2_id=pe.id OR t.helper_id=pe.id) AND t.status NOT IN ('Cancelled','Rejected') AND t.scheduled_at >= DATE_SUB(NOW(), INTERVAL ? DAY)) AS recent_trips
-                FROM personnel pe ORDER BY FIELD(pe.employment_status,'Active','Inactive','Resigned'), pe.person_type, pe.full_name", [$lookback]),
+                FROM personnel pe WHERE pe.employment_status='Active' AND pe.person_type IN ('Driver','Helper')
+                ORDER BY pe.person_type, pe.full_name", [$lookback]),
             'tripHistory' => fn() => (hasRole($u, 'payroll') ? [] : many($p, "SELECT t.id, t.trip_ref, t.scheduled_at, t.status, t.destination, c.name AS client,
                     t.driver_id, t.driver2_id, t.helper_id FROM trips t JOIN clients c ON c.id=t.client_id
                     WHERE t.driver_id IS NOT NULL ORDER BY t.scheduled_at DESC LIMIT 500")),
@@ -178,8 +184,6 @@ final class Fleet {
             'employee_no' => optField($d, 'employee_no', 40),
             'full_name' => field($d, 'full_name', 120),
             'person_type' => choiceField($d, 'person_type', self::PERSON_TYPES),
-            'employment_type' => choiceField($d, 'employment_type', ['Employee', 'Contractor']),
-            'employment_status' => choiceField($d, 'employment_status', ['Active', 'Resigned', 'Inactive']),
             'contact_number' => optField($d, 'contact_number', 60),
             'address' => optField($d, 'address', 255),
             'license_number' => optField($d, 'license_number', 60),
@@ -192,14 +196,9 @@ final class Fleet {
         ];
         if ($row['person_type'] === 'Driver') must($row['license_expiry'] !== null, 'Driver license expiry date is required for drivers.');
         return transaction(function (PDO $p) use ($u, $id, $row) {
-            if ($row['employment_status'] !== 'Active' && $id) {
-                $busy = one($p, "SELECT trip_ref FROM trips WHERE (driver_id=? OR driver2_id=? OR helper_id=?) AND status IN ('Pre-Assigned','Ready for Dispatch','Dispatched','On Hold - Incident Reported','In Transit','Returned','For Reschedule') LIMIT 1", [$id, $id, $id]);
-                must(!$busy, 'This person is assigned to active trip ' . ($busy['trip_ref'] ?? '') . '.', 409);
-            }
             if ($id) {
                 $set = implode(',', array_map(fn($c) => "$c=?", array_keys($row)));
                 run($p, "UPDATE personnel SET $set WHERE id=?", array_merge(array_values($row), [$id]));
-                if ($row['employment_status'] !== 'Active') run($p, "UPDATE personnel SET availability='Unavailable' WHERE id=?", [$id]);
                 audit($p, $u['id'], 'Personnel', (string)$id, 'personnel updated', $row['full_name']);
             } else {
                 $id = insert($p, 'personnel', $row);

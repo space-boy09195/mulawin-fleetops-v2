@@ -1054,6 +1054,19 @@ def t_documents():
     U['finance'].act('Admin.backup_create', expect=False, label='Only Admin makes backups')
 
 
+def t_language():
+    REC.section('14b. Wika ng screen (English o Tagalog, naka-save sa account)')
+    for role in ('audit', 'payroll'):
+        api = U[role]
+        api.act('Admin.set_language', {'language': 'xx'}, expect=False, label='Only English or Tagalog')
+        api.act('Admin.set_language', {'language': 'tl'}, label=f'{ROLE_LABEL[role]} picks Tagalog for own account')
+        api.login(record=False)
+        REC.check((api.me.get('user') or {}).get('language') == 'tl', f'{ROLE_LABEL[role]}: language is saved on the account (tl)')
+        api.act('Admin.set_language', {'language': 'en'}, label='Back to English (default)')
+        api.login(record=False)
+        REC.check((api.me.get('user') or {}).get('language') == 'en', f'{ROLE_LABEL[role]}: back to English')
+
+
 def t_access():
     REC.section('14. Access per role: allowed pages load, other pages are blocked')
     all_pages = set()
@@ -1186,6 +1199,55 @@ def t_browser():
                 except Exception as e:
                     problems.append(f'{n}: {str(e).splitlines()[0]}')
             REC.check(not problems, f'{ROLE_LABEL[role]}: {len(navs)} pages clicked (tabs, sub-tabs, tables, charts) with no errors', '; '.join(problems)[:1500])
+            # Dashboard cards: bawat card na may link ay bubukas sa tamang page (at tab), walang error
+            try:
+                page.goto(app + '#dashboard')
+                page.wait_for_selector('#pageBody .stat-card', timeout=20000)
+                n_cards = len(page.query_selector_all('#pageBody .stat-card.clickable'))
+                bad_cards = []
+                for i in range(n_cards):
+                    page.goto(app + '#dashboard')
+                    page.wait_for_selector('#pageBody .stat-card.clickable', timeout=20000)
+                    card = page.query_selector_all('#pageBody .stat-card.clickable')[i]
+                    label = card.query_selector('.stat-label').inner_text()
+                    target = card.get_attribute('data-go') or ''
+                    before = len(errors)
+                    card.click()
+                    page.wait_for_timeout(400)
+                    try:
+                        page.wait_for_function("() => !document.querySelector('#pageBody .spinner-border')", timeout=20000)
+                    except Exception:
+                        pass
+                    want_page = target.split('#')[0].split('?')[0]
+                    got_page = page.evaluate('location.hash.slice(1).split("?")[0]')
+                    want_tab = dict(x.split('=', 1) for x in target.split('#')[1].split('&')).get('_') if '#' in target else None
+                    tab_ok = True
+                    if want_tab:
+                        act = page.query_selector('#pageBody .nav-tabs > li > .active')
+                        tab_ok = bool(act) and act.get_attribute('data-tab') == want_tab
+                    if got_page != want_page or not tab_ok or len(errors) > before or page.query_selector('#pageBody .module-down'):
+                        bad_cards.append(f'{label} -> {target} (opened {got_page})')
+                REC.check(not bad_cards, f'{ROLE_LABEL[role]}: {n_cards} dashboard cards open the right page and tab', '; '.join(bad_cards))
+            except Exception as e:
+                REC.fail(f'{ROLE_LABEL[role]}: dashboard card links', str(e).splitlines()[0])
+            # Reports & Analytics: Print (this section at all sections) may laman, header at period
+            if 'reports' in navs:
+                try:
+                    page.goto(app + '#reports')
+                    page.wait_for_selector('#repPrint', timeout=20000)
+                    n_sec = len(page.query_selector_all('#pageBody .nav-tabs > li > [data-tab]'))
+                    page.evaluate('window.print = () => { window.__printed = (window.__printed || 0) + 1; }')
+                    for mode in ('one', 'all'):
+                        page.click('#repPrint')
+                        page.click(f'[data-print="{mode}"]')
+                        page.wait_for_timeout(1200)
+                        got = page.evaluate("() => ({n: document.querySelectorAll('#printArea .print-report section').length, head: (document.querySelector('#printArea .pr-head') || {}).innerText || '', printed: window.__printed || 0})")
+                        want = 1 if mode == 'one' else n_sec
+                        REC.check(got['n'] == want and 'Period' in got['head'] and 'Printed by' in got['head'],
+                                  f'{ROLE_LABEL[role]}: Reports Print ({"this section" if mode == "one" else "all sections"}) has the header and {want} section(s)', f"{got['n']} section(s)")
+                    page.evaluate('document.getElementById("printArea").innerHTML = ""')
+                except Exception as e:
+                    REC.fail(f'{ROLE_LABEL[role]}: Reports print', str(e).splitlines()[0])
             # phone width: no sideways scrolling on the first page
             try:
                 page.set_viewport_size({'width': 390, 'height': 844})
@@ -1199,6 +1261,51 @@ def t_browser():
             except Exception as e:
                 REC.fail(f'{ROLE_LABEL[role]}: phone view', str(e).splitlines()[0])
             ctx.close()
+        # Tagalog: buong menu ng Admin sa Tagalog (walang error), at palit pabalik sa English gamit ang dropdown ng pangalan
+        try:
+            a = U['admin']
+            a.act('Admin.set_language', {'language': 'tl'}, label='Admin switches to Tagalog for the browser check')
+            ctx = browser.new_context(viewport={'width': 1440, 'height': 900})
+            page = ctx.new_page()
+            page.set_default_timeout(20000)
+            errors = []
+            page.on('pageerror', lambda e: errors.append(str(e)))
+            page.goto(app)
+            page.fill('#lgU', a.user)
+            page.fill('#lgP', a.pw)
+            page.click('button[type=submit]')
+            page.wait_for_selector('#dashRefresh')
+            page.wait_for_timeout(500)
+            REC.check('I-refresh' in page.inner_text('#dashRefresh') and page.evaluate('document.documentElement.lang') == 'tl',
+                      'Tagalog: the screen is in Tagalog after login', page.inner_text('#dashRefresh').strip())
+            bad = []
+            navs = page.eval_on_selector_all('[data-nav]', 'a => [...new Set(a.map(x => x.dataset.nav))]')
+            for n in navs:
+                page.goto(app + '#' + n)
+                page.wait_for_timeout(300)
+                try:
+                    page.wait_for_function("() => !document.querySelector('#pageBody .spinner-border')", timeout=20000)
+                except Exception:
+                    bad.append(f'{n}: still loading')
+                if page.query_selector('#pageBody .module-down'):
+                    bad.append(f'{n}: ' + page.inner_text('#pageBody .module-down')[:120])
+                if n in ('dashboard', 'trips', 'billing', 'payroll', 'settings'):
+                    fname = f'tl_adm_{n}.png'
+                    page.screenshot(path=os.path.join(REPORT_DIR, 'shots', fname))
+                    REC.shots.append({'role': 'admin', 'user': a.user, 'page': n + ' (Tagalog)', 'file': 'shots/' + fname, 'clicks': 0, 'problems': []})
+            REC.check(not bad and not errors, f'Tagalog: all {len(navs)} Admin pages open with no errors', '; '.join(bad + errors)[:800])
+            page.goto(app + '#dashboard')
+            page.wait_for_selector('#dashRefresh')
+            page.click('.profile-trigger')
+            with page.expect_navigation():
+                page.click('[data-lang="en"]')
+            page.wait_for_selector('#dashRefresh')
+            page.wait_for_timeout(500)
+            REC.check(page.inner_text('#dashRefresh').strip() == 'Refresh', 'Language menu: switching back to English works', page.inner_text('#dashRefresh').strip())
+            ctx.close()
+        except Exception as e:
+            REC.fail('Tagalog browser check', str(e).splitlines()[0])
+            U['admin'].act('Admin.set_language', {'language': 'en'}, expect=None, label='Back to English')
         browser.close()
 
 
@@ -1342,7 +1449,7 @@ def main():
     ok = setup_accounts(admin_user, admin_pw, given, interactive, reuse=not args.new_accounts)
     if ok:
         sections = [t_security, t_master, t_scenario_a, t_scenario_b, t_wingvan, t_maintenance, t_purchasing, t_billing, t_finance,
-                    t_payroll, t_formula, t_documents, t_access]
+                    t_payroll, t_formula, t_documents, t_language, t_access]
         try:
             for fn in sections:
                 try:

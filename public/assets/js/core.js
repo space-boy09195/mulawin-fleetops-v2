@@ -45,6 +45,8 @@ const App = {
 
   // ---------------------------------------------------------------- start
   async start() {
+    // Wika: English muna (login screen); pagka-login, ang napili ng user (users.language).
+    if (typeof I18n !== 'undefined') I18n.start('en');
     try {
       const w = await this.request('index.php?api=whoami');
       this.csrf = w.csrf;
@@ -55,6 +57,7 @@ const App = {
   async loadMe() {
     const me = await this.request('index.php?api=me');
     this.me = me; this.csrf = me.csrf;
+    if (typeof I18n !== 'undefined') I18n.start(me.user.language);
     if (+me.user.must_change_password) return this.passwordScreen(true);
     this.shell();
     window.onhashchange = () => this.route();
@@ -63,7 +66,7 @@ const App = {
     this.timer = setInterval(() => this.refreshBell(), 60000);
   },
 
-  loginScreen(message = '') {
+  loginScreen(message = '', username = '') {
     document.getElementById('app').innerHTML = `
     <div class="login-page"><div class="login-shell">
       <aside class="login-visual" aria-label="Fleet operations overview">
@@ -79,7 +82,7 @@ const App = {
         <form id="loginForm" novalidate>
           <div class="mb-3"><label class="form-label" for="lgU">Username</label>
             <div class="input-group"><span class="input-group-text"><i class="bi bi-person-fill"></i></span>
-            <input class="form-control" id="lgU" name="username" autocomplete="username" required></div></div>
+            <input class="form-control" id="lgU" name="username" autocomplete="username" value="${UI.esc(username)}" required></div></div>
           <div class="mb-4"><label class="form-label" for="lgP">Password</label>
             <div class="input-group"><span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
             <input class="form-control" type="password" id="lgP" name="password" autocomplete="current-password" required>
@@ -98,7 +101,7 @@ const App = {
         const w = await this.request('index.php?api=whoami'); this.csrf = w.csrf;
         await this.request('index.php?api=login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...f, csrf: this.csrf }) });
         location.hash = ''; await this.loadMe();
-      } catch (err) { this.loginScreen(err.message); }
+      } catch (err) { this.loginScreen(err.message, f.username || ''); document.getElementById(f.username ? 'lgP' : 'lgU')?.focus(); }
     };
   },
 
@@ -168,6 +171,8 @@ const App = {
               <i class="bi bi-chevron-down profile-chevron"></i></button>
               <div class="dropdown-menu dropdown-menu-end profile-menu"><div class="profile-menu-user"><span class="profile-menu-name">${UI.esc(u.full_name)}</span>
                 <span class="profile-menu-role">${UI.esc(u.role_label)}${u.shift ? ' · ' + UI.esc(u.shift) + ' shift' : ''}</span></div>
+                <div class="dropdown-divider"></div><div class="dropdown-header small py-1">Language</div>
+                ${[['en', 'English'], ['tl', 'Tagalog']].map(([k, l]) => `<button class="dropdown-item lang-item" type="button" data-lang="${k}"><i class="bi ${(u.language || 'en') === k ? 'bi-check2' : 'bi-blank'} me-2"></i><span class="no-i18n">${l}</span></button>`).join('')}
                 <div class="dropdown-divider"></div><button class="dropdown-item" id="chgPw"><i class="bi bi-key me-2"></i>Change password</button>
                 <button class="dropdown-item profile-logout" id="logoutBtn"><i class="bi bi-box-arrow-right me-2"></i>Log Out</button></div></div>
           </div>
@@ -182,7 +187,9 @@ const App = {
     // Mahabang page: itago ang subtitle habang naka-scroll at ipakita ang "Back to top".
     document.getElementById('toTop').onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
     window.onscroll = () => {
-      document.body.classList.toggle('page-scrolled', window.scrollY > 120);
+      // May pagitan (120 at 30) para hindi kumurap: lumiliit ang header kapag naka-scroll, kaya umiikli ang page.
+      const cl = document.body.classList;
+      if (window.scrollY > 120) cl.add('page-scrolled'); else if (window.scrollY < 30) cl.remove('page-scrolled');
       document.getElementById('toTop').classList.toggle('show', window.scrollY > 400);
     };
     const sidebar = document.getElementById('appSidebar'), shell = document.getElementById('appShell'), overlay = document.getElementById('sidebarOverlay');
@@ -193,6 +200,12 @@ const App = {
     overlay.onclick = () => { sidebar.classList.remove('mobile-open'); overlay.classList.remove('active'); };
     document.getElementById('logoutBtn').onclick = () => { if (confirm('Log out of Mulawin FleetOps?')) this.logout(); };
     document.getElementById('chgPw').onclick = () => this.passwordScreen(false);
+    // Wika ng screen: naka-save sa account, kaya pareho saan mang computer o phone mag-login.
+    document.querySelectorAll('.lang-item').forEach(b => b.onclick = async () => {
+      if (b.dataset.lang === (this.me.user.language || 'en')) return;
+      try { await this.api('Admin.set_language', { language: b.dataset.lang }); location.reload(); }
+      catch (e) { UI.toast(e.message, 'error'); }
+    });
     document.getElementById('bellClear').onclick = async (e) => { e.stopPropagation(); await this.api('Admin.notifications_read', {}); this.refreshBell(); };
     this.renderBell();
   },
@@ -319,12 +332,27 @@ UI.toast = (msg, type = '') => {
 UI.result = (r) => { UI.toast(r.message || 'Saved.'); if (r.warning) UI.toast(r.warning, 'warn'); };
 
 /** Stat cards (repo .stat-card style). */
-UI.cards = (cards) => `<div class="stat-grid">${(cards || []).map(c => `
-  <div class="stat-card ${c.page ? 'clickable' : ''}" ${c.page ? `data-go="${UI.esc(c.page)}"` : ''}>
+UI.cards = (cards) => `<div class="stat-grid">${(cards || []).map(c => { const go = UI.canGo(c.page); return `
+  <div class="stat-card ${go ? 'clickable' : ''}" ${go ? `data-go="${UI.esc(c.page)}" title="Open the list behind this number"` : ''}>${go ? '<i class="bi bi-chevron-right stat-go" aria-hidden="true"></i>' : ''}
     <div class="stat-icon ${c.color || 'green'}"><i class="bi ${c.icon || 'bi-circle'}"></i></div>
     <div class="stat-info"><div class="stat-value">${c.format === 'money' ? UI.money(c.value) : UI.esc(typeof c.value === 'number' ? UI.num(c.value, 2) : c.value)}</div>
-    <div class="stat-label">${UI.esc(c.label)}</div>${c.hint ? `<div class="stat-hint">${UI.esc(c.hint)}</div>` : ''}</div></div>`).join('')}</div>`;
-UI.bindGo = (root) => root.querySelectorAll('[data-go]').forEach(x => x.onclick = () => App.go(x.dataset.go));
+    <div class="stat-label">${UI.esc(c.label)}</div>${c.hint ? `<div class="stat-hint">${UI.esc(c.hint)}</div>` : ''}</div></div>`; }).join('')}</div>`;
+/**
+ * Link ng card o alert: "page", "page?filter=x" o "page#tab=key".
+ * Ang "#..." ay nagsasabi kung aling tab ang bubuksan (alaala ng UI.tabs):
+ *   "_" = pangunahing tabs ng page, ibang pangalan = key ng tab group (halimbawa finance "fin" at "fin:money").
+ */
+UI.goParts = (spec) => {
+  const [main, mem] = String(spec || '').split('#'); const [page, qs] = main.split('?');
+  return { page, query: Object.fromEntries(new URLSearchParams(qs || '')), tabs: [...new URLSearchParams(mem || '')] };
+};
+UI.canGo = (spec) => !!spec && !!App.me && (App.me.nav || []).some(n => n.id === UI.goParts(spec).page);
+UI.goTo = (spec) => {
+  const g = UI.goParts(spec);
+  g.tabs.forEach(([k, v]) => sessionStorage.setItem('tab:' + g.page + (k === '_' ? '' : ':' + k), v));
+  App.go(g.page, g.query);
+};
+UI.bindGo = (root) => root.querySelectorAll('[data-go]').forEach(x => x.onclick = () => UI.goTo(x.dataset.go));
 
 /** Card wrapper. */
 UI.card = (title, body, tools = '') => `<div class="card card-gap"><div class="card-header-custom"><h3 class="card-title-custom">${title}</h3><div class="d-flex gap-2 flex-wrap">${tools}</div></div><div class="card-body-custom p-0">${body}</div></div>`;
@@ -512,24 +540,75 @@ UI.groupTabs = (root, groups, opts = {}) => {
 
 // ------------------------------------------------------------------ charts (Chart.js, repo colors)
 UI.palette = ['#0e4a26', '#c78c00', '#3b82f6', '#66b878', '#c62828', '#8d6400', '#7c3aed', '#0891b2', '#64748b', '#f59e0b'];
+/** Iisang kulay bawat kahulugan sa lahat ng chart (status, pera, payroll, aging, truck type). */
+UI.meaningColors = {
+  'Available': '#15803d', 'On Trip': '#2563eb', 'Under Maintenance': '#c62828', 'Unavailable': '#94a3b8',
+  'Billed': '#2563eb', 'Collected': '#15803d', 'Expenses': '#c62828',
+  'Cash in (collections)': '#15803d', 'Cash out (disbursements)': '#c62828',
+  'Gross': '#2563eb', 'Deductions': '#c62828', 'Net': '#15803d',
+  'All trips': '#0e4a26', 'Trips': '#0e4a26', 'Completed': '#66b878', 'Completed trips': '#66b878',
+  'Parts': '#0891b2', 'Labor': '#c78c00', 'Other': '#64748b',
+  'Not yet due': '#15803d', '1-30 days': '#f59e0b', '31-60 days': '#ea580c', '61-90 days': '#c62828', 'Over 90 days': '#7f1d1d',
+  'Assigned': '#c78c00',
+  'Car Carrier': '#0e4a26', 'Container': '#c78c00', 'Wing Van': '#3b82f6',
+  'Client': '#c78c00',
+};
+UI.colorOf = (label, i) => UI.meaningColors[label] || UI.palette[i % UI.palette.length];
 UI._charts = [];
+UI.chartEmpty = (c) => !c.labels || !c.labels.length || c.datasets.every(d => !d.data.some(x => +x));
 UI.chartHtml = (c) => {
   const id = 'ch' + Math.random().toString(36).slice(2, 8);
   UI._charts[id] = c;
-  const empty = !c.labels || !c.labels.length || c.datasets.every(d => !d.data.some(x => +x));
+  // Pahigang bar: taas ayon sa dami ng pangalan para hindi siksik.
+  const h = c.horizontal ? Math.max(220, Math.min(640, 70 + c.labels.length * 30)) : 0;
   return `<div class="card"><div class="card-header-custom"><h3 class="card-title-custom">${UI.esc(c.title)}</h3></div><div class="card-body-custom">
-    ${empty ? '<div class="table-empty">No data for this period.</div>' : `<div class="chart-box"><canvas data-chart="${id}"></canvas></div>`}
+    ${UI.chartEmpty(c) ? '<div class="table-empty">No data for this period.</div>' : `<div class="chart-box${c.horizontal ? ' chart-box-h' : ''}" ${h ? `style="height:${h}px"` : ''}><canvas data-chart="${id}"></canvas></div>`}
     ${c.how ? `<div class="chart-how"><i class="bi bi-info-circle"></i> ${UI.esc(c.how)}</div>` : ''}</div></div>`;
+};
+/** Chart.js settings mula sa spec: peso format, %, kulay ayon sa kahulugan, pahiga, stacked. */
+UI.chartConfig = (c, forPrint = false) => {
+  const round = c.type === 'doughnut' || c.type === 'pie';
+  const money = c.format === 'money';
+  const fmt = (v) => money ? UI.money(v) : UI.num(v, 2);
+  const axisFmt = (v) => money ? '₱' + Number(v).toLocaleString('en-PH', { maximumFractionDigits: 0 }) : UI.num(v, 2);
+  const valueAxis = c.horizontal ? 'x' : 'y', nameAxis = c.horizontal ? 'y' : 'x';
+  // Bilang (trips, units): buong numero lang sa axis, walang 0.5.
+  const whole = !money && c.datasets.every(d => d.data.every(x => Number.isInteger(+x)));
+  return {
+    type: c.type,
+    data: { labels: c.labels, datasets: c.datasets.map((d, i) => ({ ...d,
+      backgroundColor: round ? c.labels.map((l, j) => UI.colorOf(l, j)) : UI.colorOf(d.label, i),
+      borderColor: round ? '#fff' : UI.colorOf(d.label, i), tension: .3, fill: false, maxBarThickness: 48 })) },
+    options: {
+      responsive: !forPrint, maintainAspectRatio: false, animation: forPrint ? false : undefined,
+      indexAxis: c.horizontal ? 'y' : 'x',
+      plugins: {
+        legend: { display: round || c.datasets.length > 1, position: 'bottom' },
+        tooltip: { callbacks: { label: (ctx) => {
+          const v = ctx.raw;
+          if (round) { const total = ctx.dataset.data.reduce((a, b) => a + (+b || 0), 0); return `${ctx.label}: ${fmt(v)} (${total ? (v / total * 100).toFixed(1) : 0}%)`; }
+          return `${ctx.dataset.label}: ${fmt(v)}`;
+        } } },
+      },
+      scales: round ? {} : {
+        [valueAxis]: { beginAtZero: true, stacked: !!c.stacked, ticks: { callback: axisFmt, ...(whole ? { precision: 0 } : {}) } },
+        [nameAxis]: { stacked: !!c.stacked, ticks: { autoSkip: !c.horizontal } },
+      },
+    },
+  };
 };
 UI.drawChart = (canvas) => {
   const c = UI._charts[canvas.dataset.chart]; if (!c || typeof Chart === 'undefined') return;
-  const round = c.type === 'doughnut' || c.type === 'pie';
-  new Chart(canvas, {
-    type: c.type, data: { labels: c.labels, datasets: c.datasets.map((d, i) => ({ ...d, backgroundColor: round ? UI.palette : UI.palette[i % UI.palette.length],
-      borderColor: round ? '#fff' : UI.palette[i % UI.palette.length], tension: .3, fill: false })) },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: round || c.datasets.length > 1, position: 'bottom' } },
-      scales: round ? {} : { y: { beginAtZero: true } } },
-  });
+  new Chart(canvas, UI.chartConfig(c));
+};
+/** Larawan (PNG) ng chart para sa print. */
+UI.chartImage = (c, w = 900, h = 340) => {
+  if (typeof Chart === 'undefined' || UI.chartEmpty(c)) return '';
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = c.horizontal ? Math.max(h, 70 + c.labels.length * 26) : h;
+  cv.style.position = 'fixed'; cv.style.left = '-10000px'; document.body.append(cv);
+  const ch = new Chart(cv, UI.chartConfig(c, true));
+  const url = cv.toDataURL('image/png'); ch.destroy(); cv.remove();
+  return url;
 };
 
 /**
@@ -634,6 +713,29 @@ UI.fundForm = (opts) => {
 
 /** Print only the given HTML (payslips, deduction forms, invoices). */
 UI.print = (html) => { const a = document.getElementById('printArea'); a.innerHTML = html; window.print(); };
+/**
+ * Print ng report sections (Reports & Analytics). Laging bago ang laman ng printArea, kaya hindi na
+ * lumalabas ang lumang payslip o blangkong page. meta = {title, period, filters}.
+ * Kasama: header (kumpanya, report, period, filters, sino at kailan nag-print), cards, charts (larawan) at buong tables.
+ */
+UI.printReport = (sections, meta = {}) => {
+  const e = UI.esc, u = App.me.user, co = (App.me.company || {}).name || '';
+  const cards = (list) => (list || []).length ? `<div class="pr-cards">${list.map(c => `<div class="pr-card"><div class="pr-val">${c.format === 'money' ? UI.money(c.value) : e(typeof c.value === 'number' ? UI.num(c.value, 2) : c.value)}</div><div class="pr-lbl">${e(c.label)}</div>${c.hint ? `<div class="pr-hint">${e(c.hint)}</div>` : ''}</div>`).join('')}</div>` : '';
+  const charts = (list) => (list || []).map(c => { const round = c.type === 'doughnut' || c.type === 'pie';
+    const img = round ? UI.chartImage(c, 520, 300) : UI.chartImage(c); return img ? `<div class="pr-chart${round ? ' pr-half' : ''}"><div class="pr-h3">${e(c.title)}</div><img src="${img}" alt="${e(c.title)}">${c.how ? `<div class="pr-note">${e(c.how)}</div>` : ''}</div>` : ''; }).join('');
+  const tables = (list) => {
+    const full = (list || []).filter(t => (t.rows || []).length), empty = (list || []).filter(t => !(t.rows || []).length);
+    return full.map(t => `<div class="pr-table"><div class="pr-h3">${e(t.title)} <span class="pr-count">(${t.rows.length})</span></div><table><thead><tr>${t.columns.map(([l, , f]) => `<th class="${f === 'money' ? 'num' : ''}">${e(l)}</th>`).join('')}</tr></thead>
+      <tbody>${t.rows.map(r => `<tr>${t.columns.map(([, k, f]) => `<td class="${f === 'money' ? 'num' : ''}">${String(UI.fmt(f, r[k], r)).replace(/<(?!\/?(b|i|span)\b)[^>]+>/g, '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`).join('')
+      + (empty.length ? `<div class="pr-note">No data: ${empty.map(t => e(t.title)).join(', ')}.</div>` : '');
+  };
+  const html = `<div class="print-report"><div class="pr-head"><div><div class="pr-co">${e(co)}</div><div class="pr-title">${e(meta.title || 'Report')}</div>
+      <div class="pr-meta">Period: <b>${e(meta.period || '')}</b>${meta.filters ? ` · ${e(meta.filters)}` : ''}</div></div>
+      <div class="pr-by">Printed by ${e(u.full_name)} (${e(u.role_label || u.role)})<br>${e(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }))}</div></div>
+    ${sections.map((s, i) => `<section class="pr-section${i ? ' pr-break' : ''}"><h2>${e(s.title)}</h2>${s.note ? `<div class="pr-note">${e(s.note)}</div>` : ''}${cards(s.cards)}${charts(s.charts)}${tables(s.tables)}</section>`).join('')}</div>`;
+  document.getElementById('printArea').innerHTML = html;
+  setTimeout(() => window.print(), 50);
+};
 
 /** Options helpers for selects. */
 UI.opts = (rows, labelFn, valueKey = 'id') => (rows || []).map(r => [r[valueKey], labelFn(r)]);

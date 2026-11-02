@@ -6,6 +6,9 @@
  *  FMS PDF II.H and the Billing and Collection role:
  *    - client profiles and client-specific / route-based rates
  *    - link completed trips to billing; attach waybills
+ *    - BAGONG PDF v7: billing draft bawat trip (ginagawa ng system sa Confirm
+ *      Dispatch, Core/BillingDraft.php) -> Billing nagve-verify ng documents
+ *      -> Finalize kapag Completed na -> invoice mula sa finalized drafts
  *    - billing summaries and invoices (one invoice can cover many trips)
  *    - collections, outstanding balances, AR reports
  *    - completed trips that are not yet billed
@@ -45,13 +48,16 @@ final class Billing {
             return $data;
         }
         $data = readSections([
-            'unbilled' => fn() => many($p, "SELECT t.id, t.trip_ref, t.client_id, c.name AS client, c.company_name, t.truck_type, t.origin, t.destination, t.scheduled_at,
-                    t.completed_at, t.units_planned, t.units_delivered, t.client_rate, v.plate_number,
+            // Billing drafts (bagong PDF v7): Draft at Finalized na hindi pa naka-invoice.
+            'drafts' => fn() => many($p, "SELECT bd.*, t.trip_ref, t.status AS trip_status, t.truck_type, t.origin, t.destination, t.scheduled_at, t.completed_at,
+                    t.units_planned, t.units_delivered, t.distance_km, c.name AS client, c.company_name, v.plate_number,
                     (SELECT GROUP_CONCAT(w.waybill_number SEPARATOR ', ') FROM waybills w WHERE w.trip_id=t.id) AS waybills,
-                    (SELECT MIN(w.submitted_on) FROM waybills w WHERE w.trip_id=t.id) AS waybill_submitted
-                FROM trips t JOIN clients c ON c.id=t.client_id LEFT JOIN vehicles v ON v.id=t.vehicle_id
-                WHERE t.status='Completed' AND NOT EXISTS (SELECT 1 FROM billing_items bi JOIN billings b ON b.id=bi.billing_id WHERE bi.trip_id=t.id AND b.status<>'Cancelled')
-                ORDER BY c.name, t.completed_at"),
+                    (SELECT COUNT(*) FROM waybills w WHERE w.trip_id=t.id) AS waybill_count,
+                    (SELECT MIN(w.submitted_on) FROM waybills w WHERE w.trip_id=t.id) AS waybill_submitted,
+                    vu.full_name AS verified_by_name, fu.full_name AS finalized_by_name
+                FROM billing_drafts bd JOIN trips t ON t.id=bd.trip_id JOIN clients c ON c.id=bd.client_id LEFT JOIN vehicles v ON v.id=t.vehicle_id
+                LEFT JOIN users vu ON vu.id=bd.docs_verified_by LEFT JOIN users fu ON fu.id=bd.finalized_by
+                WHERE bd.status IN ('Draft','Finalized') ORDER BY FIELD(bd.status,'Finalized','Draft'), c.name, t.scheduled_at"),
             'invoices' => fn() => many($p, "SELECT b.*, c.name AS client, c.company_name,
                     COALESCE((SELECT SUM(co.amount) FROM collections co WHERE co.billing_id=b.id),0) AS collected,
                     (SELECT COUNT(*) FROM billing_items bi WHERE bi.billing_id=b.id) AS trip_count,
@@ -73,6 +79,10 @@ final class Billing {
             'client_save' => self::clientSave($u, $d),
             'route_save' => self::routeSave($u, $d),
             'rate_save' => self::rateSave($u, $d),
+            'draft_update' => self::draftUpdate($u, $d),
+            'draft_verify' => self::draftVerify($u, $d),
+            'draft_finalize' => self::draftFinalize($u, $d),
+            'draft_reopen' => self::draftReopen($u, $d),
             'invoice_create' => self::invoiceCreate($u, $d),
             'invoice_cancel' => self::invoiceCancel($u, $d),
             'collection_add' => self::collectionAdd($u, $d),
@@ -124,27 +134,94 @@ final class Billing {
         });
     }
 
+    // -----------------------------------------------------------------
+    // BILLING DRAFTS (bagong PDF v7)
+    // -----------------------------------------------------------------
+    private static function lockDraft(PDO $p, int $id): array {
+        $b = one($p, 'SELECT bd.*, t.trip_ref, t.status AS trip_status FROM billing_drafts bd JOIN trips t ON t.id=bd.trip_id WHERE bd.id=? FOR UPDATE', [$id]);
+        must((bool)$b, 'Billing draft not found.', 404);
+        return $b;
+    }
+
+    /** Billing: ayusin ang rate, basis, quantity o description habang Draft pa. */
+    private static function draftUpdate(array $u, array $d): array {
+        requireRole($u, 'billing');
+        $id = idField($d, 'draft_id');
+        $basis = choiceField($d, 'rate_basis', ['Per Trip', 'Per Unit', 'Per KM']);
+        $qty = numberField($d, 'quantity'); $rate = (float)moneyField($d, 'rate');
+        $desc = optField($d, 'description', 255);
+        must($qty > 0, 'Quantity must be more than zero.');
+        return transaction(function (PDO $p) use ($u, $id, $basis, $qty, $rate, $desc) {
+            $b = self::lockDraft($p, $id);
+            must($b['status'] === 'Draft', 'Only a Draft can be edited (this one is ' . $b['status'] . ').', 409);
+            $amount = round($rate * $qty, 2);
+            run($p, 'UPDATE billing_drafts SET rate_basis=?, quantity=?, rate=?, amount=?, description=COALESCE(?, description) WHERE id=?',
+                [$basis, $qty, number_format($rate, 2, '.', ''), number_format($amount, 2, '.', ''), $desc, $id]);
+            audit($p, $u['id'], 'Billing', $b['trip_ref'], 'billing draft edited', "$basis: PHP " . number_format($rate, 2) . " x $qty = PHP " . number_format($amount, 2));
+            return ['draft_id' => $id, 'message' => 'Draft saved. Amount: PHP ' . number_format($amount, 2) . '.'];
+        });
+    }
+
+    /** Billing: na-check na ang required documents (waybill) ng trip. */
+    private static function draftVerify(array $u, array $d): array {
+        requireRole($u, 'billing');
+        $id = idField($d, 'draft_id'); $note = optField($d, 'docs_note', 255);
+        return transaction(function (PDO $p) use ($u, $id, $note) {
+            $b = self::lockDraft($p, $id);
+            must($b['status'] === 'Draft', 'Only a Draft can be verified (this one is ' . $b['status'] . ').', 409);
+            must($b['docs_verified_at'] === null, 'Documents are already verified.', 409);
+            // TODO PENDING COMPANY CONFIRMATION (C14): ang PDF ay "required documents" lang. Waybill ang
+            // required dito (Billing role: "Attach supporting documents, including waybills").
+            must((bool)one($p, 'SELECT id FROM waybills WHERE trip_id=? LIMIT 1', [$b['trip_id']]), 'No waybill recorded for ' . $b['trip_ref'] . ' yet. Record the waybill first.', 409);
+            run($p, 'UPDATE billing_drafts SET docs_verified_by=?, docs_verified_at=NOW(), docs_note=? WHERE id=?', [$u['id'], $note, $id]);
+            audit($p, $u['id'], 'Billing', $b['trip_ref'], 'billing documents verified', $note ?? '');
+            return ['draft_id' => $id, 'message' => 'Documents verified for ' . $b['trip_ref'] . '.'];
+        });
+    }
+
+    /** Billing: i-finalize kapag Completed na ang trip at verified na ang documents (PDF v7). */
+    private static function draftFinalize(array $u, array $d): array {
+        requireRole($u, 'billing');
+        $id = idField($d, 'draft_id');
+        return transaction(function (PDO $p) use ($u, $id) {
+            $b = self::lockDraft($p, $id);
+            must($b['status'] === 'Draft', 'This billing is already ' . $b['status'] . '.', 409);
+            must($b['trip_status'] === 'Completed', 'The trip is not Completed yet (now: ' . $b['trip_status'] . '). Billing can be finalized only after delivery is completed.', 409);
+            must($b['docs_verified_at'] !== null, 'Verify the required documents first.', 409);
+            must($b['rate'] !== null && (float)$b['amount'] > 0, 'Enter the rate first (Edit draft).', 409);
+            run($p, "UPDATE billing_drafts SET status='Finalized', finalized_by=?, finalized_at=NOW() WHERE id=?", [$u['id'], $id]);
+            audit($p, $u['id'], 'Billing', $b['trip_ref'], 'billing finalized', 'PHP ' . number_format((float)$b['amount'], 2));
+            return ['draft_id' => $id, 'message' => 'Billing finalized. ' . $b['trip_ref'] . ' is ready for the invoice.'];
+        });
+    }
+
+    /** Billing: ibalik sa Draft ang finalized na hindi pa naka-invoice (para maitama), may dahilan. */
+    private static function draftReopen(array $u, array $d): array {
+        requireRole($u, 'billing');
+        $id = idField($d, 'draft_id'); $reason = field($d, 'reason', 200);
+        return transaction(function (PDO $p) use ($u, $id, $reason) {
+            $b = self::lockDraft($p, $id);
+            must($b['status'] === 'Finalized', 'Only a Finalized billing that is not yet invoiced can be returned to Draft.', 409);
+            run($p, "UPDATE billing_drafts SET status='Draft', finalized_by=NULL, finalized_at=NULL WHERE id=?", [$id]);
+            audit($p, $u['id'], 'Billing', $b['trip_ref'], 'billing returned to draft', $reason);
+            return ['draft_id' => $id, 'message' => 'Returned to Draft.'];
+        });
+    }
+
     /**
-     * Invoice for one client covering one or more completed trips.
-     * Due date default = invoice date + client payment terms (repo docs Q15).
+     * Invoice for one client covering one or more FINALIZED billings (PDF v7: "i-finalize ang
+     * billing at ihanda ang invoice para sa client"). Due date default = invoice date + client terms (repo docs Q15).
      */
     private static function invoiceCreate(array $u, array $d): array {
         requireRole($u, 'billing');
         $client = idField($d, 'client_id'); $no = field($d, 'invoice_number', 70); $date = dateField($d, 'invoice_date');
         $due = dateField($d, 'due_date', false); $discount = optMoney($d, 'discount') ?? '0.00'; $notes = optField($d, 'notes', 255);
-        $items = $d['items'] ?? [];
-        must(is_array($items) && count($items) >= 1 && count($items) <= 200, 'Choose at least one completed trip.');
-        $clean = [];
-        foreach ($items as $it) {
-            must(is_array($it), 'Invalid trip line.');
-            $qty = numberField($it, 'quantity', false) ?? 1.0;
-            must($qty > 0, 'Quantity must be more than zero.');
-            $clean[] = ['trip_id' => idField($it, 'trip_id'), 'rate' => (float)moneyField($it, 'rate'), 'quantity' => $qty,
-                        'rate_basis' => choiceField($it, 'rate_basis', ['Per Trip', 'Per Unit', 'Per KM'], false) ?? 'Per Trip',
-                        'description' => optField($it, 'description', 255)];
-        }
-        must(count(array_unique(array_column($clean, 'trip_id'))) === count($clean), 'A trip was listed twice.');
-        return transaction(function (PDO $p) use ($u, $client, $no, $date, $due, $discount, $notes, $clean) {
+        $ids = $d['draft_ids'] ?? [];
+        must(is_array($ids) && count($ids) >= 1 && count($ids) <= 200, 'Choose at least one finalized billing.');
+        $ids = array_map(fn($x) => (int)$x, $ids);
+        must(min($ids) > 0, 'Invalid billing line.');
+        must(count(array_unique($ids)) === count($ids), 'A billing was listed twice.');
+        return transaction(function (PDO $p) use ($u, $client, $no, $date, $due, $discount, $notes, $ids) {
             $c = one($p, 'SELECT * FROM clients WHERE id=?', [$client]);
             must((bool)$c, 'Client not found.');
             must(!one($p, 'SELECT id FROM billings WHERE invoice_number=?', [$no]), 'Invoice number already used.', 409);
@@ -153,31 +230,26 @@ final class Billing {
                 $due = date('Y-m-d', strtotime($date . " +$terms days"));
             }
             must($due >= $date, 'Due date must be on or after the invoice date.');
-            $gross = 0.0;
-            foreach ($clean as &$it) {
-                $t = one($p, 'SELECT * FROM trips WHERE id=? FOR UPDATE', [$it['trip_id']]);
-                must($t && $t['status'] === 'Completed', 'Only completed trips can be billed.', 409);
-                must((int)$t['client_id'] === $client, $t['trip_ref'] . ' belongs to another client.', 409);
-                must(!one($p, "SELECT bi.id FROM billing_items bi JOIN billings b ON b.id=bi.billing_id WHERE bi.trip_id=? AND b.status<>'Cancelled'", [$it['trip_id']]), $t['trip_ref'] . ' is already billed.', 409);
-                $it['amount'] = round($it['rate'] * $it['quantity'], 2);
-                $it['description'] = $it['description'] ?? ($t['trip_ref'] . ' ' . $t['origin'] . ' - ' . $t['destination']);
-                $gross += $it['amount'];
+            $lines = []; $gross = 0.0;
+            foreach ($ids as $id) {
+                $b = self::lockDraft($p, $id);
+                must($b['status'] === 'Finalized', $b['trip_ref'] . ' is not finalized (now: ' . $b['status'] . ').', 409);
+                must((int)$b['client_id'] === $client, $b['trip_ref'] . ' belongs to another client.', 409);
+                must($b['trip_status'] === 'Completed', 'Only completed trips can be billed.', 409);
+                must(!one($p, "SELECT bi.id FROM billing_items bi JOIN billings bb ON bb.id=bi.billing_id WHERE bi.trip_id=? AND bb.status<>'Cancelled'", [$b['trip_id']]), $b['trip_ref'] . ' is already billed.', 409);
+                $lines[] = $b; $gross += (float)$b['amount'];
             }
-            unset($it);
             $net = round($gross - (float)$discount, 2);
             must($net > 0, 'Invoice total must be more than zero.');
             $bid = insert($p, 'billings', ['invoice_number' => $no, 'client_id' => $client, 'invoice_date' => $date, 'due_date' => $due,
                 'gross_amount' => number_format($gross, 2, '.', ''), 'discount' => $discount, 'net_amount' => number_format($net, 2, '.', ''), 'notes' => $notes, 'created_by' => $u['id']]);
-            // Trips without a waybill are allowed but listed in the audit note (waybill follow-up).
-            $missing = [];
-            foreach ($clean as $it) {
-                insert($p, 'billing_items', ['billing_id' => $bid, 'trip_id' => $it['trip_id'], 'description' => $it['description'], 'rate_basis' => $it['rate_basis'],
-                    'quantity' => $it['quantity'], 'rate' => number_format($it['rate'], 2, '.', ''), 'amount' => number_format($it['amount'], 2, '.', '')]);
-                if (!one($p, 'SELECT id FROM waybills WHERE trip_id=? LIMIT 1', [$it['trip_id']])) $missing[] = $it['trip_id'];
+            foreach ($lines as $b) {
+                insert($p, 'billing_items', ['billing_id' => $bid, 'trip_id' => $b['trip_id'], 'description' => $b['description'], 'rate_basis' => $b['rate_basis'],
+                    'quantity' => $b['quantity'], 'rate' => $b['rate'], 'amount' => $b['amount']]);
+                run($p, "UPDATE billing_drafts SET status='Invoiced', billing_id=? WHERE id=?", [$bid, $b['id']]);
             }
-            audit($p, $u['id'], 'Billing', $no, 'invoice issued', $c['name'] . ': ' . count($clean) . ' trip(s), PHP ' . number_format($net, 2) . ($missing ? '; trips without waybill: ' . implode(',', $missing) : ''));
-            return ['billing_id' => $bid, 'message' => 'Invoice ' . $no . ' issued (PHP ' . number_format($net, 2) . ', due ' . $due . ').',
-                    'warning' => $missing ? count($missing) . ' trip(s) have no waybill recorded yet. Please follow up.' : null];
+            audit($p, $u['id'], 'Billing', $no, 'invoice issued', $c['name'] . ': ' . count($lines) . ' trip(s), PHP ' . number_format($net, 2));
+            return ['billing_id' => $bid, 'message' => 'Invoice ' . $no . ' issued (PHP ' . number_format($net, 2) . ', due ' . $due . ').'];
         });
     }
 
@@ -190,8 +262,9 @@ final class Billing {
             must(!one($p, 'SELECT id FROM collections WHERE billing_id=? LIMIT 1', [$id]), 'Invoice has collections and cannot be cancelled.', 409);
             run($p, "UPDATE billings SET status='Cancelled', notes=CONCAT(COALESCE(notes,''), ' | Cancelled: ', ?) WHERE id=?", [$reason, $id]);
             run($p, 'DELETE FROM billing_items WHERE billing_id=?', [$id]);   // trips become billable again
+            run($p, "UPDATE billing_drafts SET status='Finalized', billing_id=NULL WHERE billing_id=?", [$id]);
             audit($p, $u['id'], 'Billing', $b['invoice_number'], 'invoice cancelled', $reason);
-            return ['billing_id' => $id, 'message' => 'Invoice cancelled. Its trips can be billed again.'];
+            return ['billing_id' => $id, 'message' => 'Invoice cancelled. Its billings are back to Finalized and can be invoiced again.'];
         });
     }
 

@@ -8,7 +8,7 @@ SR-006,Fleet,Statuses Available/Assigned/On Trip/Under Maintenance/Unavailable,F
 SR-007,Fleet,Prevent double truck/crew booking on overlapping schedule,FMS PDF II.B,Trips autoAssign + reassign (same-day check; repo dispatch_assignment.php),Implemented (day window = C01)
 SR-008,Fleet,Motorpool updates truck status Available / Under Maintenance,FMS PDF p.18,Fleet.vehicle_status,Implemented
 SR-009,Fleet,Reminders for expiring vehicle documents,FMS PDF II.B,Notify::dailyReminders; dashboards,Implemented
-SR-010,Crew,Driver/helper/staff records; license expiry; status; availability; trip history,FMS PDF II.C,Modules/Operations/Fleet.php crew page,Implemented
+SR-010,Crew,Driver and helper records (no staff; no employee/contractor or resigned on screen); license expiry; availability; trip history,FMS PDF v6 II.C,Modules/Operations/Fleet.php crew page,Implemented
 SR-011,Operations,Scenario A: client to Operations Head; system assigns,FMS PDF p.16,Trips::create (Ops Head),Implemented
 SR-012,Operations,Scenario B: client to dispatcher; Ops Head sets truck type and dispatcher type,FMS PDF p.16-17,Trips::create + review,Implemented
 SR-013,Operations,System auto-assigns truck/driver/helper,FMS PDF p.16,Trips::autoAssign,Implemented (rule = C01)
@@ -34,7 +34,7 @@ SR-032,Finance,AP; expenses; vouchers; cheques; disbursements; cash advances; ca
 SR-033,Billing,Client profiles; client-specific and route-based rates,FMS PDF II.H,Modules/Accounting/Billing.php clients page,Implemented
 SR-034,Billing,Invoices linked to completed trips; collections; outstanding; unbilled trips; AR reports,FMS PDF II.H,Modules/Accounting/Billing.php billing page; Analytics money section,Implemented (C10)
 SR-035,Billing,Projected P&L per trip,Dummy Computation for Billing PL.xlsx,Settings::projectedPnl,Implemented (matches G36/G44/G46)
-SR-036,Payroll,Payroll for drivers/helpers/admin/contractors/PDI; trip pay from waybills; allowances; deductions; payslips; deduction forms; Finance disbursement,FMS PDF II.J; Payroll role,Modules/Accounting/Payroll.php; Finance::payrollDisburse,Implemented
+SR-036,Payroll,Payroll for drivers and helpers only (PDF v6); trip pay from waybills; allowances; deductions; payslips; deduction forms; Finance disbursement,FMS PDF II.J; Payroll role,Modules/Accounting/Payroll.php; Finance::payrollDisburse,Implemented
 SR-037,Payroll,Wage=rate x days; SSS=(775/24) x days; PhilHealth 75; Pag-IBIG 50; savings 500; net=gross-deductions,DRIVERS PAYROLL.xlsx (N14 O14 P14 X15 M13 Y13 Z13),config/formulas.php; Settings::computeItems,Implemented (tests/formula_test.php)
 SR-038,Payroll,Cash bond; damages; uniform installments; balances,DRIVERS PAYROLL.xlsx CASH BOND / damages / UNIFORM / BALANCES sheets,employee_ledgers; Payroll balances page,Implemented
 SR-039,Payroll,Trip pay = rate per destination x trips; driver and helper rates differ,repo docs (questionnaire Q23),trip_pay_rates; Payroll::tripsFor,Implemented
@@ -53,3 +53,6 @@ SR-051,Design,Follow the repo design,User request,layout.css/login.css/vendor fr
 SR-052,Structure,Follow the V2 zip structure,User request,backend/ public/ database/ scripts/ storage/ docs/ tests/,Implemented
 SR-053,Operations,Scenario B delivery request appears to Ops Head as Pending Review; Ops Head completes trip details and confirms,FMS PDF v2 Scenario B steps 2-3,Trips::create/review,Implemented
 SR-054,Maintenance,Maintenance assesses incident severity; major = truck cannot be assigned while Under Maintenance,FMS PDF v2 Scenario C steps 3-4,Maintenance::assess; Trips::autoAssign excludes open repairs,Implemented
+SR-055,Billing,System creates a billing draft when the trip is ongoing (based on the route); Billing finalizes only when the trip is completed and the required documents are verified; invoice from finalized billings,FMS PDF v7 Scenario A step 9 / B step 10,Core/BillingDraft.php; Billing::draftVerify/draftFinalize/invoiceCreate; database/migrations/2026-11-02_billing_drafts.sql,Implemented (C14)
+SR-056,Payroll,Per-trip pay vs attendance and deductions for drivers (to be confirmed by the company),Operations Head interview; FMS PDF v6 II.J,Payroll::computeLine (daily rate 0 / deductions inactive = per trip only),Pending (C13)
+SR-057,General,Screen language per account: English (default) or Tagalog (office Taglish); statuses / PDF and Excel terms / printouts stay English,Instruction from the team (2026-11-02),public/assets/js/i18n.js; public/assets/js/i18n/tl.js; Admin::setLanguage; database/migrations/2026-11-03_user_language.sql,Implemented

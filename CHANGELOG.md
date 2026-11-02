@@ -1,5 +1,54 @@
 # Changelog
 
+## 2026-11-02 (wika: English o Tagalog)
+- Sa dropdown ng pangalan (kung nasaan ang Log Out): **Wika / Language: English o Tagalog**. Naka-save sa account, kaya
+  pareho saan mang computer o phone mag-login. English ang default.
+- Tagalog: pang-opisinang Taglish sa lahat ng nakikita sa screen (buttons, labels, tabs, cards, charts, forms, mensahe ng
+  system at notifications). Hindi isinasalin: mga pangalan ng page sa menu, mga status at termino ng PDF at Excel
+  (Pre-Assigned, Ready for Dispatch, Billed, SSS ...), at ang mga printout (invoice, payslip, payment voucher, printed report).
+- Paano gumagana: `public/assets/js/i18n.js` (tagasalin) at `public/assets/js/i18n/tl.js` (diksiyunaryo). Para magdagdag
+  o magpalit ng salin, i-edit ang `tl.js`; walang ibang file na kailangang galawin.
+- Sa English, English na rin ang ilang tekstong Tagalog dati sa screen (halimbawa ang tabs ng Finance: Expenses & Payables,
+  Employees, Planning).
+- **DATABASE CHANGE:** bagong column `users.language`. Bagong install: kasama na sa `schema.sql`. Live: i-import ang
+  `database/migrations/2026-11-03_user_language.sql` pagkatapos ng backup (ligtas kahit dalawang beses).
+- Test: may language checks na sa `tests/system_test.py` (API at browser sa Tagalog).
+
+## 2026-11-02 (polish: analytics)
+- **Bug fix:** gumagana na ang Print sa Reports & Analytics (dati ay blangkong page, o lumang payslip ang lumalabas).
+  Dalawang pagpipilian: Print this section at Print all sections. May header (kumpanya, period, filters, sino at kailan
+  nag-print), cards, charts at buong tables.
+- Charts: may ₱ at comma ang pera sa axis at tooltip, may porsyento ang bilog na charts, buong numero lang ang bilang,
+  iisang kulay bawat kahulugan sa lahat ng chart, pahigang bar para sa client at dispatcher, stacked na maintenance cost
+  per truck (pinakamalaki muna). Bagong chart sa Reports > Payroll (gross, deductions at net kada period, galing sa
+  parehong data ng table). Mas maikli ang charts sa phone.
+- Cards: may maliit na arrow ang card na may link at bubukas sa mismong tab o filter (halimbawa Overdue balance ->
+  Billing > Receivables by client). Hindi na clickable kapag wala sa menu ng role ang page.
+- Dashboard: "Updated" na oras sa tabi ng Refresh. Reports: buod ng period at filters sa itaas ng tabs.
+- Labels: ang card group na "Pera" ay "Money" na; ₱ na rin ang hints ng cards (dating "PHP").
+- Walang database change at walang binagong formula.
+
+## 2026-11-02 (automated system test)
+- Bagong `tests/system_test.py` (at `tests/run_system_test.bat`): pipili ng XAMPP o Hostinger, magla-login bilang Admin,
+  gagawa ng test account kada role kung wala, susubukan ang buong workflow at mga bawal na gawain sa API, iki-click ang bawat
+  page at tab ng bawat role sa browser, at gagawa ng HTML report na may screenshots. Guide: `tests/SYSTEM_TEST_GUIDE.md`.
+- Login: hindi na nabubura ang username kapag mali ang password.
+- Walang database change sa update na ito.
+
+## 2026-11-02 (FMS PDF v6 at v7)
+- **Billing draft (PDF v7, Scenario A step 9 / B step 10):** sa Confirm Dispatch (ongoing na ang trip), gumagawa ang
+  system ng billing draft batay sa client rate ng route (`backend/Core/BillingDraft.php`). Sa Billing > Billing drafts:
+  Edit (habang Draft), **Verify documents** (kailangan may waybill), **Finalize** (trip Completed + verified + may rate),
+  Return to draft. Ang invoice ay galing na sa finalized billings (tab na Ready to invoice); hindi na tina-type ang rate.
+  Ang cancel ng invoice ay nagbabalik sa Finalized.
+- **Drivers at helpers lang (PDF v6):** inalis ang Admin Staff at PDI Personnel, ang "Employee o Contractor" at ang
+  Active/Resigned sa screen. Ang page ay "Drivers & Helpers". Para sa drivers at helpers lang ang Payroll at cash advance.
+- **Payroll:** sinusunod ang PDF v6 (attendance, trip pay, deductions). Bukas pa ang tanong kung per biyahe lang ang
+  sahod ng drivers (C13); pwedeng i-switch sa settings nang walang code change (tingnan ang PENDING_COMPANY_CONFIRMATION).
+- **DATABASE CHANGE:** bagong table `billing_drafts`. Bagong install: `schema.sql` + `extension.sql`. Existing database
+  (live): i-import ang `database/migrations/2026-11-02_billing_drafts.sql` pagkatapos ng backup.
+- Maliit na ayos: hindi na kumukurap ang nakadikit na header sa maiikling page.
+
 ## 2026-11-01 (polish: navigation at layout)
 - Sidebar: isang section lang ang bukas (accordion); bubukas ang section ng current page.
 - Nakadikit ang page header (title at buttons) habang nag-i-scroll; may "Back to top" button.

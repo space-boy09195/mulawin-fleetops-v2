@@ -72,7 +72,7 @@ App.page('finance', {
     if (e) {
       ctx.tools.innerHTML = `<div class="btn-group"><button class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-plus-lg"></i> Record</button><ul class="dropdown-menu dropdown-menu-end">
         <li><button class="dropdown-item" data-new="exp">Expense</button></li><li><button class="dropdown-item" data-new="ap">Account payable</button></li>
-        <li><button class="dropdown-item" data-new="ca">Cash advance (employee)</button></li><li><button class="dropdown-item" data-new="bud">Budget</button></li></ul></div>`;
+        <li><button class="dropdown-item" data-new="ca">Cash advance (driver / helper)</button></li><li><button class="dropdown-item" data-new="bud">Budget</button></li></ul></div>`;
       ctx.tools.querySelectorAll('[data-new]').forEach(b => b.onclick = () => ({
         exp: () => UI.formModal('Record expense', [
           { name: 'category', label: 'Category', type: 'select', required: true, options: UI.list(d.categories), col: 4 }, { name: 'amount', label: 'Amount (PHP)', type: 'money', required: true, col: 4 },
@@ -126,7 +126,7 @@ App.page('finance', {
         id: 'pdis', actions: e ? (p) => p.status === 'Submitted to Finance' ? UI.btn('disb', 'Disburse', 'success') : '' : null,
         onAction: (a, p) => UI.formModal('Disburse payroll ' + UI.esc(p.period_name), [{ name: 'period_id', type: 'hidden', value: p.id }, ...payFields()], 'Finance.payroll_disburse', { intro: 'Total net pay: <b>' + UI.money(p.total_net) + '</b>. Recorded as a Payroll expense.' }) })],
       ['bud', 'Budgets', () => UI.table([['Category', 'category'], ['Budget', 'budget_amount', 'money'], ['Used', 'used_amount', 'money'], ['Remaining', 'budget_amount', (x, r) => UI.money(+r.budget_amount - +r.used_amount)], ['Period', 'period_start', (x, r) => x ? UI.date(x) + ' – ' + UI.date(r.period_end) : '—'], ['Status', 'status', 'badge'], ['Set by', 'set_by_name']], d.budgets, { id: 'buds' })],
-      ['cf', 'Cash flow', () => UI.chartHtml({ title: 'Cash in vs cash out per month', type: 'bar', labels: cf.map(r => r.month), datasets: [{ label: 'Cash in (collections)', data: cf.map(r => r.cash_in) }, { label: 'Cash out (disbursements)', data: cf.map(r => r.cash_out) }], how: 'Cash in = collections recorded by Billing; cash out = disbursements recorded by Finance.' }) +
+      ['cf', 'Cash flow', () => UI.chartHtml({ title: 'Cash in vs cash out per month', type: 'bar', format: 'money', labels: cf.map(r => r.month), datasets: [{ label: 'Cash in (collections)', data: cf.map(r => r.cash_in) }, { label: 'Cash out (disbursements)', data: cf.map(r => r.cash_out) }], how: 'Cash in = collections recorded by Billing; cash out = disbursements recorded by Finance.' }) +
         UI.table([['Month', 'month'], ['Cash in', 'cash_in', 'money'], ['Cash out', 'cash_out', 'money'], ['Net', 'net', 'money'], ['Running total', 'running', 'money']], cf, { id: 'cft', title: 'Cash flow summary' })],
     ];
     const pick = (...keys) => tabs.filter(t => keys.includes(t[0]));

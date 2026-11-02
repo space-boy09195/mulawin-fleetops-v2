@@ -34,7 +34,7 @@ final class Access {
 
             'fleet'        => ['Fleet Status & Trucks', 'bi-truck', 'Fleet Management', 'Fleet', 'operations/fleet',
                                array_merge(['admin', 'operations_head', 'motorpool'], $D)],
-            'crew'         => ['Drivers, Helpers & Staff', 'bi-person-badge', 'Fleet Management', 'Fleet', 'operations/fleet',
+            'crew'         => ['Drivers & Helpers', 'bi-person-badge', 'Fleet Management', 'Fleet', 'operations/fleet',
                                array_merge(['admin', 'operations_head', 'payroll'], $D)],
 
             'trips'        => ['Dispatch Board', 'bi-send', 'Trip & Dispatch', 'Trips', 'operations/trips',

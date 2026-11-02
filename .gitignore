@@ -4,3 +4,6 @@
 !/storage/private/.htaccess
 /storage/backups/*
 !/storage/backups/.htaccess
+/tests/reports/
+/tests/system_test_accounts.json
+__pycache__/

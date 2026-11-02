@@ -51,7 +51,7 @@ Kapag tapos na, kusang bubukas ang report.
 | 14 Access | Bawat role: lahat ng page sa menu ay bumubukas, at ang ibang pages ay bawal |
 | 15 Restore | Ibinabalik ang settings na binago ng test |
 | 16 Cleanup | Dine-deactivate ang test trucks at ginagawang Unavailable ang test crew |
-| 17 Browser | Bawat page, tab, sub-tab, table picker at chart ng bawat role, may screenshot; phone view |
+| 17 Browser | Bawat page, tab, sub-tab, table picker at chart ng bawat role, may screenshot; bawat dashboard card (tamang page at tab); Print ng Reports; phone view |
 
 ## 4. Ang report
 

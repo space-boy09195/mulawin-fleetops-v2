@@ -57,6 +57,45 @@ Fresh empty database imported from `database/schema.sql` + `database/extension.s
 Page height before → after (1440×900 screen, test data): Reports (Admin) 6,949 → 1,454 px; Reports (Audit) 5,858 → 1,454;
 Formula Settings 4,806 → 900; Dashboard (Admin) 2,706 → 1,557; Dashboard (Ops Head) 1,724 → 1,394. Longest page now: 1,664 px.
 
+### Re-test 2026-11-02 (FMS PDF v6 and v7 changes)
+
+| Test | Result |
+|---|---|
+| `php -l` / `node --check` on every file; preflight; formula test on a fresh database (15 checks) | PASS |
+| `tests/e2e_workflow.py` with the new billing checks: draft made at dispatch from the route rate; finalize blocked while ongoing, without waybill and before verify; only Billing finalizes; invoice only from finalized billings; edit blocked after finalize; billed twice blocked | PASS, 205 checks, 0 failures |
+| Every page and tab for every role in the browser; UI click-through (dispatch makes a draft) | PASS |
+| Migration `2026-11-02_billing_drafts.sql` on a copy without the table, imported twice | PASS (drafts for completed unbilled trips, Invoiced for billed trips, no duplicates) |
+
+### Re-test 2026-11-02 (automated system test `tests/system_test.py`)
+
+| Test | Result |
+|---|---|
+| `tests/system_test.py` on a fresh XAMPP-style database (`--reset`): accounts per role, security, master data, Scenario A, B, C.1, C.2, wing van, maintenance, purchasing, billing drafts and invoices, finance, payroll, formula settings, documents, backup, page access per role, restore of settings, browser click-through of every page, tab and sub-tab for all 10 roles with screenshots, phone width | PASS, 404 checks, 0 failures |
+| Same script again on the same database (existing data, accounts reused) | PASS, 0 failures |
+| Hostinger option (link + TEST confirmation) against the local server | PASS |
+| `tests/e2e_workflow.py` after the login screen change | PASS, 0 failures |
+
+Found by the system test and fixed: after a wrong password the login screen cleared the username. It now keeps the
+username and puts the cursor on the password.
+
+### Re-test 2026-11-02 (analytics polish)
+
+| Test | Result |
+|---|---|
+| `tests/system_test.py` on a fresh database, now also clicking every dashboard card of all 10 roles (right page and tab) and Reports Print (this section and all sections, header and section count) | PASS, 434 checks, 0 failures |
+| `tests/e2e_workflow.py` | PASS, 0 failures |
+| Report printed to PDF (A4) and checked: header, white background, charts as images, full tables, one section per page | PASS |
+| Phone width (390 px): no sideways scrolling | PASS |
+
+### Re-test 2026-11-02 (language: English or Tagalog)
+
+| Test | Result |
+|---|---|
+| `tests/system_test.py` on a fresh database, with the new language checks (own language saved on the account, only en / tl, every Admin page in Tagalog with no errors, switch back to English from the name menu) | PASS, 448 checks, 0 failures |
+| Migration `2026-11-03_user_language.sql` on a database without the column, imported twice; login before the migration still works in English and the language change shows the import message | PASS |
+| Backend messages seen in a full test run translated to Tagalog | 127 of 127 |
+| `tests/e2e_workflow.py` (payroll period now covers the test day) | PASS, 0 failures |
+
 Notes:
 - `tests/formula_test.php` compares with the Excel defaults, so run it on a database where Formula Settings were not changed.
 - The Apache `.htaccess` rules were not changed in this update (last Apache test: PASS).

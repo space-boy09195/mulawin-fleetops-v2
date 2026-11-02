@@ -1,4 +1,4 @@
-/* assets/js/modules/operations/fleet.js — Fleet Status & Trucks, Drivers/Helpers/Staff
+/* assets/js/modules/operations/fleet.js — Fleet Status & Trucks, Drivers & Helpers
    (FMS PDF II.B and II.C). Backend: backend/Modules/Operations/Fleet.php */
 'use strict';
 
@@ -71,20 +71,18 @@ App.page('fleet', {
 });
 
 App.page('crew', {
-  title: 'Drivers, Helpers & Staff',
-  subtitle: 'Employee and contractor records, license expiry, availability and trip history.',
+  title: 'Drivers & Helpers',
+  subtitle: 'Driver and helper details, contact information, license expiry, assigned truck, availability and trip history.',
   render(ctx) {
     const d = ctx.data, can = d.can, ps = d.people || [];
-    const active = ps.filter(p => p.employment_status === 'Active');
+    const active = ps; // PDF v6: drivers at helpers lang; Available / Unavailable ang gamit (walang Resigned sa screen)
     const cnt = (type, av) => active.filter(p => p.person_type === type && (!av || p.availability === av)).length;
-    if (can.edit) ctx.tools.innerHTML = '<button class="btn btn-sm btn-primary" id="addPerson"><i class="bi bi-plus-lg"></i> Add person</button>';
-    const personForm = (p = {}) => UI.formModal(p.id ? 'Edit ' + UI.esc(p.full_name) : 'Add person', [
+    if (can.edit) ctx.tools.innerHTML = '<button class="btn btn-sm btn-primary" id="addPerson"><i class="bi bi-plus-lg"></i> Add driver / helper</button>';
+    const personForm = (p = {}) => UI.formModal(p.id ? 'Edit ' + UI.esc(p.full_name) : 'Add driver / helper', [
       { name: 'id', type: 'hidden', value: p.id },
-      { name: 'full_name', label: 'Full name', required: true, value: p.full_name, col: 6 }, { name: 'employee_no', label: 'Employee / contractor no.', value: p.employee_no, col: 6 },
+      { name: 'full_name', label: 'Full name', required: true, value: p.full_name, col: 6 }, { name: 'employee_no', label: 'ID no.', value: p.employee_no, col: 6 },
       { name: 'person_type', label: 'Position', type: 'select', required: true, options: UI.list(d.personTypes), value: p.person_type, col: 4 },
-      { name: 'employment_type', label: 'Employee or contractor', type: 'select', options: UI.list(['Employee', 'Contractor']), value: p.employment_type || 'Employee', placeholder: false, col: 4 },
-      { name: 'employment_status', label: 'Status', type: 'select', options: UI.list(['Active', 'Resigned', 'Inactive']), value: p.employment_status || 'Active', placeholder: false, col: 4 },
-      { name: 'contact_number', label: 'Contact number', value: p.contact_number, col: 6 }, { name: 'date_hired', label: 'Date hired', type: 'date', value: p.date_hired, col: 6 },
+      { name: 'contact_number', label: 'Contact number', value: p.contact_number, col: 4 }, { name: 'date_hired', label: 'Date hired', type: 'date', value: p.date_hired, col: 4 },
       { name: 'address', label: 'Address', value: p.address, col: 12 },
       { name: 'license_number', label: "Driver's license no.", value: p.license_number, col: 6 }, { name: 'license_expiry', label: 'License expiry', type: 'date', value: p.license_expiry, col: 6, help: 'Required for drivers' },
       { name: 'payroll_group', label: 'Payroll group', value: p.payroll_group, col: 4, help: 'e.g. South Carrier, South Container, North Container, Wing Van' },
@@ -94,23 +92,22 @@ App.page('crew', {
     ], 'Fleet.person_save');
     if (can.edit) document.getElementById('addPerson').onclick = () => personForm();
 
-    ctx.el.innerHTML = `<div class="section-note">Staffing: compare the available drivers / helpers with the trips planned (Dispatch Board).</div>` + UI.cards([
-      { label: 'Active drivers', value: cnt('Driver'), icon: 'bi-person-badge', color: 'green', hint: cnt('Driver', 'Available') + ' available, ' + cnt('Driver', 'On Trip') + ' on trip' },
-      { label: 'Active helpers', value: cnt('Helper'), icon: 'bi-people', color: 'green', hint: cnt('Helper', 'Available') + ' available, ' + cnt('Helper', 'On Trip') + ' on trip' },
+    ctx.el.innerHTML = UI.cards([
+      { label: 'Drivers', value: cnt('Driver'), icon: 'bi-person-badge', color: 'green', hint: cnt('Driver', 'Available') + ' available, ' + cnt('Driver', 'On Trip') + ' on trip' },
+      { label: 'Helpers', value: cnt('Helper'), icon: 'bi-people', color: 'green', hint: cnt('Helper', 'Available') + ' available, ' + cnt('Helper', 'On Trip') + ' on trip' },
       { label: 'Unavailable drivers / helpers', value: cnt('Driver', 'Unavailable') + cnt('Helper', 'Unavailable'), icon: 'bi-slash-circle', color: 'red' },
       { label: 'Licenses expiring ≤ 30 days', value: active.filter(p => p.license_days_left !== null && +p.license_days_left <= 30).length, icon: 'bi-card-heading', color: 'amber' },
-      { label: 'Resigned / inactive', value: ps.length - active.length, icon: 'bi-person-x', color: 'gray' },
     ]);
-    const cols = [['Name', 'full_name'], ['No.', 'employee_no'], ['Position', 'person_type'], ['Type', 'employment_type'], ['Status', 'employment_status', 'badge'],
+    const cols = [['Name', 'full_name'], ['No.', 'employee_no'], ['Position', 'person_type'],
       ['Availability', 'availability', 'badge'], ['License expiry', 'license_days_left', (x, r) => r.license_expiry ? UI.date(r.license_expiry) + '<br>' + UI.days(x) : '—'],
       ['Regular truck', 'assigned_truck'], ['Trips (recent)', 'recent_trips', 'num'], ['Completed trips', 'total_trips', 'num']];
     if (can.pay) cols.push(['Payroll group', 'payroll_group'], ['Daily rate', 'daily_rate', 'money'], ['Pay', 'pay_frequency']);
     if (!UI.role('payroll')) cols.splice(2, 0, ['Contact', 'contact_number']);
     const body = document.createElement('div'); ctx.el.append(body);
     body.innerHTML = UI.table(cols, ps, {
-      id: 'people', empty: 'No personnel yet. The Admin adds drivers, helpers and staff here.',
+      id: 'people', empty: 'No drivers or helpers yet. The Admin adds them here.',
       actions: (r) => (can.edit ? UI.btn('edit', 'Edit', 'outline-primary', 'bi-pencil') : '') + (can.pay && !can.edit ? UI.btn('pay', 'Pay info', 'outline-primary') : '') +
-        (can.availability && r.availability !== 'On Trip' && r.employment_status === 'Active' ? UI.btn('avail', r.availability === 'Available' ? 'Set unavailable' : 'Set available', 'outline-warning') : '') +
+        (can.availability && r.availability !== 'On Trip' ? UI.btn('avail', r.availability === 'Available' ? 'Set unavailable' : 'Set available', 'outline-warning') : '') +
         ((d.tripHistory || []).length ? UI.btn('trips', 'Trips', 'outline-secondary', 'bi-list') : ''),
       onAction(act, r) {
         if (act === 'edit') personForm(r);

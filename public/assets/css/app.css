@@ -45,6 +45,12 @@
 /* ---- Charts ---- */
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; margin-bottom: 18px; }
 .chart-box { position: relative; height: 260px; }
+/* Card na may link: maliit na arrow sa kanang itaas */
+.stat-card { position: relative; }
+.stat-card .stat-go { position: absolute; top: 8px; right: 10px; font-size: .75rem; color: #94a3b8; }
+.stat-card.clickable:hover .stat-go { color: var(--accent); }
+.report-summary { font-size: .85rem; }
+.report-summary .badge { font-weight: 500; }
 .chart-how { font-size: .72rem; color: var(--text-muted); margin-top: 6px; }
 
 /* ---- Forms in modals ---- */
@@ -90,7 +96,34 @@
 .payslip td { padding: 2px 4px; }
 .payslip .sig { margin-top: 18px; border-top: 1px solid #333; width: 220px; text-align: center; font-size: .72rem; }
 #printArea { display: none; }
+/* Printed report (Reports & Analytics > Print) */
+.print-report { font-size: 11px; color: #111; }
+.print-report .pr-head { display: flex; justify-content: space-between; gap: 16px; border-bottom: 3px solid #0e4a26; padding-bottom: 8px; margin-bottom: 10px; }
+.print-report .pr-co { font-weight: 700; font-size: 13px; color: #0e4a26; }
+.print-report .pr-title { font-size: 18px; font-weight: 700; }
+.print-report .pr-meta, .print-report .pr-by { font-size: 10.5px; color: #333; }
+.print-report .pr-by { text-align: right; }
+.print-report h2 { font-size: 15px; margin: 6px 0; color: #0e4a26; }
+.print-report .pr-h3 { font-weight: 700; margin: 8px 0 4px; }
+.print-report .pr-note { color: #555; font-size: 10px; margin: 2px 0 6px; }
+.print-report .pr-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0; }
+.print-report .pr-card { border: 1px solid #ccc; border-radius: 4px; padding: 5px 7px; break-inside: avoid; }
+.print-report .pr-val { font-size: 14px; font-weight: 700; }
+.print-report .pr-lbl, .print-report .pr-hint { font-size: 9.5px; color: #444; }
+.print-report .pr-chart { break-inside: avoid; margin: 6px 0; }
+.print-report .pr-chart img { width: 100%; max-height: 300px; object-fit: contain; }
+.print-report .pr-half { display: inline-block; width: 49%; vertical-align: top; }
+.print-report .pr-half img { max-height: 230px; }
+.print-report table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+.print-report th, .print-report td { border: 1px solid #bbb; padding: 2px 4px; text-align: left; }
+.print-report th { background: #e8f1ec; }
+.print-report .num { text-align: right; white-space: nowrap; }
+.print-report .pr-count { font-weight: 400; color: #555; }
+.print-report .pr-break { break-before: page; }
+.print-report tr { break-inside: avoid; }
 @media print {
+  #appShell, .sidebar-overlay, .modal, .modal-backdrop, #toastZone { display: none !important; }
+  html, body { background: #fff !important; }
   body * { visibility: hidden !important; }
   #printArea, #printArea * { visibility: visible !important; }
   #printArea { display: block !important; position: absolute; left: 0; top: 0; width: 100%; }
@@ -198,4 +231,8 @@ a { color: var(--primary); }
   .stat-info { min-width: 0; }
   .stat-info .stat-value { font-size: 1.05rem; overflow-wrap: anywhere; }
   .stat-info .stat-label { font-size: .7rem; }
+  /* Charts: mas maikli sa phone para kasya sa screen (ang pahigang bar ay may sariling taas). */
+  .chart-box:not(.chart-box-h) { height: 200px; }
+  .chart-grid { grid-template-columns: 1fr; }
 }
+.bi-blank::before { content: ""; display: inline-block; width: 1em; }

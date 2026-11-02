@@ -4,7 +4,8 @@
  *  backend/Modules/Accounting/Payroll.php  —  PAYROLL AND TIMEKEEPING
  * =====================================================================
  *  FMS PDF II.J and the Payroll role:
- *    - payroll for drivers, helpers, admin employees, contractors, PDI
+ *    - payroll for drivers and helpers (bagong FMS PDF v6: drivers at helpers
+ *      lang; tinanggal na ang admin employees, contractors at PDI)
  *    - trip and waybill information is the basis of trip-related pay
  *    - allowances, deductions and other adjustments
  *    - payslips and deduction forms
@@ -18,6 +19,14 @@
  *    Deductions     = SSS, PhilHealth, Pag-IBIG, loans, CA, ...    (Y = SUM(N:X))
  *    Net pay        = Gross pay − Total deductions                  (Z = M − Y)
  *  The numbers come from Formula Settings (config/formulas.php).
+ *
+ *  TODO PENDING COMPANY CONFIRMATION (C13): sabi ng Operations Head sa interview,
+ *  per biyahe ang sahod ng drivers; ang PDF v6 ay may attendance at deductions pa.
+ *  Hangga't wala pang sagot, sinusunod ang PDF (attendance + trip pay + deductions).
+ *  Kung per biyahe lang at walang deductions, HINDI kailangan baguhin ang code:
+ *    - Daily rate = 0 sa Pay info ng driver/helper  -> regular wage = 0, trip pay lang
+ *    - Formula Settings > Computation lists > Payroll deductions -> i-uncheck ang Active
+ *  Kung may ibang patakaran (halimbawa ibang rate kada biyahe), dito sa computeLine() ang babaguhin.
  * =====================================================================
  */
 declare(strict_types=1);
@@ -35,7 +44,7 @@ final class Payroll {
             $to = self::d($q['to'] ?? '') ?? date('Y-m-d', strtotime($from . ' +6 days'));
             must((strtotime($to) - strtotime($from)) / 86400 <= 31, 'Show at most 31 days at a time.');
             $data = readSections([
-                'people' => fn() => many($p, "SELECT id, full_name, person_type, payroll_group FROM personnel WHERE employment_status='Active' ORDER BY payroll_group, person_type, full_name"),
+                'people' => fn() => many($p, "SELECT id, full_name, person_type, payroll_group FROM personnel WHERE employment_status='Active' AND person_type IN ('Driver','Helper') ORDER BY payroll_group, person_type, full_name"),
                 'attendance' => fn() => many($p, 'SELECT personnel_id, work_date, status, remarks FROM attendance WHERE work_date BETWEEN ? AND ?', [$from, $to]),
             ]);
             $data['range'] = ['from' => $from, 'to' => $to];
@@ -48,7 +57,7 @@ final class Payroll {
                 'ledgers' => fn() => many($p, "SELECT l.*, pe.full_name, pe.payroll_group FROM employee_ledgers l JOIN personnel pe ON pe.id=l.personnel_id
                     ORDER BY FIELD(l.status,'Open','Paid'), pe.full_name, l.ledger_type"),
                 'entries' => fn() => many($p, 'SELECT e.*, l.personnel_id, l.ledger_type FROM ledger_entries e JOIN employee_ledgers l ON l.id=e.ledger_id ORDER BY e.id DESC LIMIT 3000'),
-                'people' => fn() => many($p, "SELECT id, full_name FROM personnel WHERE employment_status='Active' ORDER BY full_name"),
+                'people' => fn() => many($p, "SELECT id, full_name FROM personnel WHERE employment_status='Active' AND person_type IN ('Driver','Helper') ORDER BY full_name"),
             ]);
             $data['types'] = self::LEDGER_TYPES;
             $data['can'] = ['edit' => hasRole($u, 'payroll')];
@@ -64,7 +73,7 @@ final class Payroll {
             'lines' => fn() => many($p, 'SELECT pl.*, pe.full_name, pe.person_type, pe.employee_no, pe.payroll_group FROM payroll_lines pl
                 JOIN personnel pe ON pe.id=pl.personnel_id WHERE pl.period_id IN (SELECT id FROM (SELECT id FROM payroll_periods ORDER BY date_to DESC, id DESC LIMIT 60) x)
                 ORDER BY pe.person_type, pe.full_name'),
-            'people' => fn() => many($p, "SELECT id, full_name, person_type, payroll_group, daily_rate, pay_frequency FROM personnel WHERE employment_status='Active' ORDER BY full_name"),
+            'people' => fn() => many($p, "SELECT id, full_name, person_type, payroll_group, daily_rate, pay_frequency FROM personnel WHERE employment_status='Active' AND person_type IN ('Driver','Helper') ORDER BY full_name"),
             'tripRates' => fn() => many($p, 'SELECT r.*, ro.origin, ro.destination AS route_destination FROM trip_pay_rates r LEFT JOIN routes ro ON ro.id=r.route_id ORDER BY r.active DESC, r.truck_type, COALESCE(ro.destination, r.destination)'),
             'routes' => fn() => many($p, 'SELECT id, origin, destination FROM routes WHERE active=1 ORDER BY destination'),
             'groups' => fn() => array_column(many($p, "SELECT DISTINCT payroll_group FROM personnel WHERE payroll_group IS NOT NULL AND payroll_group<>'' ORDER BY payroll_group"), 'payroll_group'),
@@ -176,7 +185,7 @@ final class Payroll {
         return transaction(function (PDO $p) use ($u, $name, $group, $from, $to) {
             $id = insert($p, 'payroll_periods', ['period_name' => $name, 'payroll_group' => $group, 'date_from' => $from, 'date_to' => $to, 'created_by' => $u['id']]);
             $pp = one($p, 'SELECT * FROM payroll_periods WHERE id=?', [$id]);
-            $sql = "SELECT * FROM personnel WHERE employment_status='Active'" . ($group ? ' AND payroll_group=?' : '');
+            $sql = "SELECT * FROM personnel WHERE employment_status='Active' AND person_type IN ('Driver','Helper')" . ($group ? ' AND payroll_group=?' : '');
             $people = many($p, $sql, $group ? [$group] : []);
             foreach ($people as $pe) {
                 insert($p, 'payroll_lines', ['period_id' => $id, 'personnel_id' => $pe['id']] + self::computeLine($p, $pp, $pe, []));

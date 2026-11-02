@@ -527,6 +527,36 @@ CREATE TABLE billing_items (
   FOREIGN KEY (trip_id) REFERENCES trips(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Billing draft bawat trip (bagong FMS PDF v7, Scenario A step 9 / B step 10):
+-- "Kapag ongoing ang trip, magccreate na ng billing draft si system (automation based sa route).
+--  Kapag completed na ang delivery at verified na ang required documents, saka puwedeng
+--  i-finalize ang billing at ihanda ang invoice para sa client."
+-- Draft (ginawa ng system sa Confirm Dispatch) -> Finalized (Billing) -> Invoiced (kasama sa invoice).
+CREATE TABLE billing_drafts (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  trip_id INT NOT NULL UNIQUE,
+  client_id INT NOT NULL,
+  rate_basis VARCHAR(20) NULL COMMENT 'Per Trip, Per Unit, Per KM (galing sa client rate ng route)',
+  quantity DECIMAL(10,2) NOT NULL DEFAULT 1,
+  rate DECIMAL(12,2) NULL COMMENT 'NULL = walang client rate para sa route; ilalagay ng Billing',
+  amount DECIMAL(12,2) NULL,
+  description VARCHAR(255) NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'Draft' COMMENT 'Draft, Finalized, Invoiced',
+  docs_verified_by INT NULL,
+  docs_verified_at DATETIME NULL,
+  docs_note VARCHAR(255) NULL,
+  finalized_by INT NULL,
+  finalized_at DATETIME NULL,
+  billing_id INT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (trip_id) REFERENCES trips(id),
+  FOREIGN KEY (client_id) REFERENCES clients(id),
+  FOREIGN KEY (docs_verified_by) REFERENCES users(id),
+  FOREIGN KEY (finalized_by) REFERENCES users(id),
+  FOREIGN KEY (billing_id) REFERENCES billings(id),
+  INDEX idx_billing_draft_status (status, client_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE collections (
   id INT AUTO_INCREMENT PRIMARY KEY,
   billing_id INT NOT NULL,

@@ -7,7 +7,7 @@ App.page('documents', {
   subtitle: 'OR/CR, insurance, contracts, forms, waybills, receipts and photos. Files are private and checked by role before download.',
   render(ctx) {
     const d = ctx.data, docs = d.documents || [];
-    const labels = { trip: 'Trip', vehicle: 'Truck', personnel: 'Employee', client: 'Client', maintenance: 'Maintenance job', inspection: 'Inspection (checklist)', purchase: 'Purchase request', parts: 'Part', fund: 'Fund request', expense: 'Expense', payable: 'Account payable', voucher: 'Payment voucher', billing: 'Invoice', waybill: 'Waybill', payroll: 'Payroll period', administrative: 'Administrative (not linked)' };
+    const labels = { trip: 'Trip', vehicle: 'Truck', personnel: 'Driver / helper', client: 'Client', maintenance: 'Maintenance job', inspection: 'Inspection (checklist)', purchase: 'Purchase request', parts: 'Part', fund: 'Fund request', expense: 'Expense', payable: 'Account payable', voucher: 'Payment voucher', billing: 'Invoice', waybill: 'Waybill', payroll: 'Payroll period', administrative: 'Administrative (not linked)' };
     if (d.uploadTypes.length) {
       ctx.tools.innerHTML = '<button class="btn btn-sm btn-primary" id="upl"><i class="bi bi-upload"></i> Upload</button>';
       document.getElementById('upl').onclick = () => UI.modal('Upload documents', UI.fields([

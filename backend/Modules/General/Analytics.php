@@ -59,12 +59,13 @@ final class Analytics {
     private static function pairs(array $rows, string $label, string $value): array {
         return ['labels' => array_column($rows, $label), 'values' => array_map('floatval', array_column($rows, $value))];
     }
-    /** Naglalagay ng "group" sa cards para may heading bawat grupo sa dashboard (Trips, Fleet, Pera). */
+    /** Naglalagay ng "group" sa cards para may heading bawat grupo sa dashboard (Trips, Fleet, Money). */
     private static function group(string $group, array $cards): array {
         return array_map(fn($c) => $c + ['group' => $group], $cards);
     }
-    private static function chart(string $title, string $type, array $labels, array $datasets, string $how = ''): array {
-        return compact('title', 'type', 'labels', 'datasets', 'how');
+    /** $opt (display only): format 'money' (peso axis and tooltip), horizontal (long names), stacked (parts of a total). */
+    private static function chart(string $title, string $type, array $labels, array $datasets, string $how = '', array $opt = []): array {
+        return compact('title', 'type', 'labels', 'datasets', 'how') + $opt;
     }
     private static function table(string $title, array $columns, array $rows, string $page = ''): array {
         return compact('title', 'columns', 'rows', 'page');
@@ -151,26 +152,26 @@ final class Analytics {
             'title' => 'Management Dashboard', 'subtitle' => 'Company-wide summary for ' . date('F Y'),
             'alerts' => $alerts,
             'cards' => array_merge(self::group('Trips', [
-                self::card('Trips this month', (int)$tripsMonth, 'bi-truck', 'green', 'trip_records', $change === null ? 'no data last month' : ($change >= 0 ? '+' : '') . $change . '% vs last month'),
-                self::card('Completed (all time)', $status['Completed'] ?? 0, 'bi-check2-circle', 'green', 'trip_records'),
-                self::card('Ongoing trips', $ongoing, 'bi-signpost-split', 'blue', 'trips'),
-                self::card('Pending / scheduled trips', $pending, 'bi-hourglass-split', 'amber', 'trips'),
+                self::card('Trips this month', (int)$tripsMonth, 'bi-truck', 'green', 'trip_records?from=' . date('Y-m-01') . '&to=' . date('Y-m-t'), $change === null ? 'no data last month' : ($change >= 0 ? '+' : '') . $change . '% vs last month'),
+                self::card('Completed (all time)', $status['Completed'] ?? 0, 'bi-check2-circle', 'green', 'trip_records?status=Completed'),
+                self::card('Ongoing trips', $ongoing, 'bi-signpost-split', 'blue', 'trips#_=open'),
+                self::card('Pending / scheduled trips', $pending, 'bi-hourglass-split', 'amber', 'trips#_=open'),
             ]), self::group('Fleet', [
                 self::card('Available trucks', $fleet['Available'] . ' / ' . array_sum($fleet), 'bi-truck-front', 'green', 'fleet'),
-                self::card('Under maintenance', $fleet['Under Maintenance'], 'bi-tools', 'red', 'maintenance'),
-            ]), self::group('Pera', [
-                self::card('Billed this month', $billedMonth, 'bi-receipt', 'blue', 'billing', '', 'money'),
-                self::card('Collected this month', $collectedMonth, 'bi-cash-coin', 'green', 'billing', '', 'money'),
-                self::card('Outstanding receivables', self::outstanding($p), 'bi-exclamation-circle', 'amber', 'billing', '', 'money'),
-                self::card('Expenses this month', $expMonth, 'bi-wallet2', 'red', 'finance', '', 'money'),
+                self::card('Under maintenance', $fleet['Under Maintenance'], 'bi-tools', 'red', 'maintenance#_=avail'),
+            ]), self::group('Money', [
+                self::card('Billed this month', $billedMonth, 'bi-receipt', 'blue', 'billing#_=inv', '', 'money'),
+                self::card('Collected this month', $collectedMonth, 'bi-cash-coin', 'green', 'billing#_=col', '', 'money'),
+                self::card('Outstanding receivables', self::outstanding($p), 'bi-exclamation-circle', 'amber', 'billing#_=ar', '', 'money'),
+                self::card('Expenses this month', $expMonth, 'bi-wallet2', 'red', 'finance#fin=money&fin:money=exp', '', 'money'),
             ])),
             'charts' => [
                 self::chart('Completed trips per month', 'bar', $six['labels'], [['label' => 'Completed trips', 'data' => $six['trips']]], 'COUNT of trips with status Completed, grouped by completion month.'),
-                self::chart('Billed vs collected vs expenses', 'line', $six['labels'], [['label' => 'Billed', 'data' => $six['billed']], ['label' => 'Collected', 'data' => $six['collected']], ['label' => 'Expenses', 'data' => $six['expenses']]], 'Billed = invoice net amounts; Collected = payments received; Expenses = recorded expenses.'),
+                self::chart('Billed vs collected vs expenses', 'line', $six['labels'], [['label' => 'Billed', 'data' => $six['billed']], ['label' => 'Collected', 'data' => $six['collected']], ['label' => 'Expenses', 'data' => $six['expenses']]], 'Billed = invoice net amounts; Collected = payments received; Expenses = recorded expenses.', ['format' => 'money']),
                 self::chart('Trips this month by truck type', 'doughnut', array_column($byType, 'truck_type'), [['label' => 'Trips', 'data' => array_map('intval', array_column($byType, 'n'))]]),
-                self::chart('Trips this month by client (top 8)', 'bar', array_column($byClient, 'client'), [['label' => 'Trips', 'data' => array_map('intval', array_column($byClient, 'n'))]]),
+                self::chart('Trips this month by client (top 8)', 'bar', array_column($byClient, 'client'), [['label' => 'Trips', 'data' => array_map('intval', array_column($byClient, 'n'))]], '', ['horizontal' => true]),
                 self::chart('Fleet availability now', 'doughnut', array_keys($fleet), [['label' => 'Trucks', 'data' => array_values($fleet)]]),
-                self::chart('Expenses this month by category', 'doughnut', array_column($expCat, 'category'), [['label' => 'PHP', 'data' => array_map('floatval', array_column($expCat, 'total'))]]),
+                self::chart('Expenses this month by category', 'doughnut', array_column($expCat, 'category'), [['label' => 'PHP', 'data' => array_map('floatval', array_column($expCat, 'total'))]], '', ['format' => 'money']),
             ],
             'tables' => [
                 self::table('Trucks under maintenance', [['Truck', 'plate_number'], ['Type', 'truck_type'], ['Job', 'job_number'], ['Work', 'maintenance_type'], ['Status', 'status', 'badge'], ['Expected available', 'expected_available', 'date']], self::underMaintenance($p), 'maintenance'),
@@ -203,13 +204,13 @@ final class Analytics {
             'title' => 'Operations Dashboard', 'subtitle' => 'Trips, fleet and crew today',
             'alerts' => $alerts,
             'cards' => array_merge(self::group('Trips', [
-                self::card('Pending review', $s['Pending Review'] ?? 0, 'bi-inbox', 'amber', 'trips'),
-                self::card('Pre-assigned / awaiting', self::sumOf($s, ['Pre-Assigned', 'Awaiting Resources']), 'bi-check2-square', 'blue', 'trips'),
+                self::card('Pending review', $s['Pending Review'] ?? 0, 'bi-inbox', 'amber', 'trips#_=needs'),
+                self::card('Pre-assigned / awaiting', self::sumOf($s, ['Pre-Assigned', 'Awaiting Resources']), 'bi-check2-square', 'blue', 'trips#_=open'),
                 self::card('Ready for dispatch', $s['Ready for Dispatch'] ?? 0, 'bi-send-check', 'blue', 'trips'),
                 self::card('On the road', self::sumOf($s, ['Dispatched', 'In Transit', 'Returned']), 'bi-signpost-split', 'green', 'trips'),
                 self::card('On hold (incident)', $s['On Hold - Incident Reported'] ?? 0, 'bi-exclamation-triangle', 'red', 'incidents'),
                 self::card('For reschedule', $s['For Reschedule'] ?? 0, 'bi-arrow-repeat', 'red', 'incidents'),
-                self::card('Completed this month', (int)self::val($p, "SELECT COUNT(*) v FROM trips WHERE status='Completed' AND completed_at>=?", [$m0]), 'bi-check2-circle', 'green', 'trip_records'),
+                self::card('Completed this month', (int)self::val($p, "SELECT COUNT(*) v FROM trips WHERE status='Completed' AND completed_at>=?", [$m0]), 'bi-check2-circle', 'green', 'trip_records?status=Completed&from=' . date('Y-m-01')),
             ]), self::group('Fleet at crew', [
                 self::card('Available trucks', $fleet['Available'], 'bi-truck-front', 'green', 'fleet'),
                 self::card('Unavailable / maintenance', $fleet['Unavailable'] + $fleet['Under Maintenance'], 'bi-tools', 'red', 'fleet'),
@@ -218,7 +219,7 @@ final class Analytics {
             ])),
             'charts' => [
                 self::chart('Fleet status now', 'doughnut', array_keys($fleet), [['label' => 'Trucks', 'data' => array_values($fleet)]]),
-                self::chart('Trips this month by dispatcher', 'bar', array_column($byDisp, 'name'), [['label' => 'Trips', 'data' => array_map('intval', array_column($byDisp, 'trips'))], ['label' => 'Completed', 'data' => array_map('intval', array_column($byDisp, 'completed'))]]),
+                self::chart('Trips this month by dispatcher', 'bar', array_column($byDisp, 'name'), [['label' => 'Trips', 'data' => array_map('intval', array_column($byDisp, 'trips'))], ['label' => 'Completed', 'data' => array_map('intval', array_column($byDisp, 'completed'))]], '', ['horizontal' => true]),
             ],
             'tables' => [
                 self::table('Trucks under maintenance and expected availability', [['Truck', 'plate_number'], ['Type', 'truck_type'], ['Job', 'job_number'], ['Status', 'status', 'badge'], ['Expected available', 'expected_available', 'date']], self::underMaintenance($p), 'maintenance'),
@@ -255,11 +256,11 @@ final class Analytics {
             'title' => ROLE_LABELS[$r] . ' Dashboard', 'subtitle' => 'Trips of your team (' . implode(' / ', $types) . ')',
             'alerts' => $alerts,
             'cards' => [
-                self::card('Pending review', $s['Pending Review'] ?? 0, 'bi-hourglass', 'amber', 'trips'),
-                self::card('Pre-assigned', $s['Pre-Assigned'] ?? 0, 'bi-clipboard-check', 'blue', 'trips'),
+                self::card('Pending review', $s['Pending Review'] ?? 0, 'bi-hourglass', 'amber', 'trips#_=open'),
+                self::card('Pre-assigned', $s['Pre-Assigned'] ?? 0, 'bi-clipboard-check', 'blue', 'trips#_=needs'),
                 self::card('Ready for dispatch', $s['Ready for Dispatch'] ?? 0, 'bi-send-check', 'blue', 'trips'),
                 self::card('On the road', self::sumOf($s, ['Dispatched', 'In Transit', 'Returned']), 'bi-signpost-split', 'green', 'trips'),
-                self::card('On hold / for reschedule', self::sumOf($s, ['On Hold - Incident Reported', 'For Reschedule']), 'bi-arrow-repeat', 'red', 'trips'),
+                self::card('On hold / for reschedule', self::sumOf($s, ['On Hold - Incident Reported', 'For Reschedule']), 'bi-arrow-repeat', 'red', 'trips#_=open'),
                 self::card('Available trucks', $fleet['Available'], 'bi-truck-front', 'green', 'fleet'),
             ],
             'tables' => [
@@ -283,14 +284,14 @@ final class Analytics {
             'title' => 'Billing and Collection Dashboard', 'subtitle' => date('F Y'),
             'alerts' => (int)$unbilled['n'] ? [['level' => 'warning', 'text' => (int)$unbilled['n'] . ' completed trip(s) are not yet billed.', 'page' => 'billing']] : [],
             'cards' => [
-                self::card('Completed trips awaiting billing', (int)$unbilled['n'], 'bi-hourglass-split', 'amber', 'billing', 'est. PHP ' . number_format((float)$unbilled['est'], 2)),
-                self::card('Total billing this month', self::val($p, "SELECT COALESCE(SUM(net_amount),0) v FROM billings WHERE status<>'Cancelled' AND invoice_date>=?", [$m0]), 'bi-receipt', 'blue', 'billing', '', 'money'),
-                self::card('Invoices issued this month', (int)self::val($p, "SELECT COUNT(*) v FROM billings WHERE status<>'Cancelled' AND invoice_date>=?", [$m0]), 'bi-file-earmark-text', 'blue', 'billing'),
-                self::card('Collections this month', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM collections WHERE payment_date>=?', [$m0]), 'bi-cash-coin', 'green', 'billing', '', 'money'),
-                self::card('Outstanding balance', self::outstanding($p), 'bi-exclamation-circle', 'amber', 'billing', '', 'money'),
-                self::card('Overdue balance', $overdue, 'bi-alarm', 'red', 'billing', '', 'money'),
+                self::card('Completed trips awaiting billing', (int)$unbilled['n'], 'bi-hourglass-split', 'amber', 'billing#_=drafts', 'est. ₱' . number_format((float)$unbilled['est'], 2)),
+                self::card('Total billing this month', self::val($p, "SELECT COALESCE(SUM(net_amount),0) v FROM billings WHERE status<>'Cancelled' AND invoice_date>=?", [$m0]), 'bi-receipt', 'blue', 'billing#_=inv', '', 'money'),
+                self::card('Invoices issued this month', (int)self::val($p, "SELECT COUNT(*) v FROM billings WHERE status<>'Cancelled' AND invoice_date>=?", [$m0]), 'bi-file-earmark-text', 'blue', 'billing#_=inv'),
+                self::card('Collections this month', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM collections WHERE payment_date>=?', [$m0]), 'bi-cash-coin', 'green', 'billing#_=col', '', 'money'),
+                self::card('Outstanding balance', self::outstanding($p), 'bi-exclamation-circle', 'amber', 'billing#_=ar', '', 'money'),
+                self::card('Overdue balance', $overdue, 'bi-alarm', 'red', 'billing#_=ar', '', 'money'),
             ],
-            'charts' => [self::chart('Billed vs collected (6 months)', 'bar', $six['labels'], [['label' => 'Billed', 'data' => $six['billed']], ['label' => 'Collected', 'data' => $six['collected']]])],
+            'charts' => [self::chart('Billed vs collected (6 months)', 'bar', $six['labels'], [['label' => 'Billed', 'data' => $six['billed']], ['label' => 'Collected', 'data' => $six['collected']]], '', ['format' => 'money'])],
             'tables' => [self::table('Billing and collection history by client', [['Client', 'client'], ['Billed', 'billed', 'money'], ['Collected', 'collected', 'money'], ['Outstanding', 'outstanding', 'money']], $byClient, 'billing')],
         ];
     }
@@ -313,15 +314,15 @@ final class Analytics {
             'title' => 'Finance Dashboard', 'subtitle' => date('F Y'), 'alerts' => $alerts,
             'cards' => [
                 self::card('Pending fund requests (Ops Head)', (int)($f['Pending Approval']['n'] ?? 0), 'bi-hourglass-split', 'amber', 'funds'),
-                self::card('Ready for release', (int)($f['Ready for Release']['n'] ?? 0), 'bi-cash-stack', 'blue', 'funds', 'PHP ' . number_format((float)($f['Ready for Release']['a'] ?? 0), 2)),
+                self::card('Ready for release', (int)($f['Ready for Release']['n'] ?? 0), 'bi-cash-stack', 'blue', 'funds', '₱' . number_format((float)($f['Ready for Release']['a'] ?? 0), 2)),
                 self::card('Allowances released this month', self::val($p, "SELECT COALESCE(SUM(amount),0) v FROM fund_requests WHERE released_at>=?", [$m0]), 'bi-send', 'green', 'funds', '', 'money'),
-                self::card('Accounts payable balance', (float)$ap['bal'], 'bi-journal-minus', 'red', 'finance', (int)$ap['due_soon'] . ' due within 7 days', 'money'),
-                self::card('Expenses this month', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE incurred_on>=?', [$m0]), 'bi-wallet2', 'red', 'finance', '', 'money'),
-                self::card('Disbursements this month', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM disbursements WHERE released_on>=?', [$m0]), 'bi-box-arrow-up-right', 'blue', 'finance', '', 'money'),
-                self::card('Cash advances outstanding', $ca, 'bi-person-lines-fill', 'amber', 'finance', '', 'money'),
-                self::card('Allowances not yet liquidated', (int)$notLiq['n'], 'bi-clipboard-x', 'amber', 'funds', 'PHP ' . number_format((float)$notLiq['a'], 2)),
+                self::card('Accounts payable balance', (float)$ap['bal'], 'bi-journal-minus', 'red', 'finance#fin=money&fin:money=ap', (int)$ap['due_soon'] . ' due within 7 days', 'money'),
+                self::card('Expenses this month', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE incurred_on>=?', [$m0]), 'bi-wallet2', 'red', 'finance#fin=money&fin:money=exp', '', 'money'),
+                self::card('Disbursements this month', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM disbursements WHERE released_on>=?', [$m0]), 'bi-box-arrow-up-right', 'blue', 'finance#fin=money&fin:money=disb', '', 'money'),
+                self::card('Cash advances outstanding', $ca, 'bi-person-lines-fill', 'amber', 'finance#fin=emp&fin:emp=ca', '', 'money'),
+                self::card('Allowances not yet liquidated', (int)$notLiq['n'], 'bi-clipboard-x', 'amber', 'funds', '₱' . number_format((float)$notLiq['a'], 2)),
             ],
-            'charts' => [self::chart('Cash flow (6 months)', 'bar', $six['labels'], [['label' => 'Cash in (collections)', 'data' => $six['collected']], ['label' => 'Cash out (disbursements)', 'data' => $six['cash_out']]], 'Cash in = collections recorded by Billing. Cash out = all disbursements recorded by Finance.')],
+            'charts' => [self::chart('Cash flow (6 months)', 'bar', $six['labels'], [['label' => 'Cash in (collections)', 'data' => $six['collected']], ['label' => 'Cash out (disbursements)', 'data' => $six['cash_out']]], 'Cash in = collections recorded by Billing. Cash out = all disbursements recorded by Finance.', ['format' => 'money'])],
             'tables' => [self::table('Fund requests by status', [['Status', 'status', 'badge'], ['Count', 'n'], ['Amount', 'a', 'money']], array_values($f), 'funds')],
         ];
     }
@@ -352,7 +353,7 @@ final class Analytics {
             'charts' => [self::chart('Payroll per period', 'bar', array_reverse(array_column($periods, 'period_name')), [
                 ['label' => 'Gross', 'data' => array_reverse(array_map('floatval', array_column($periods, 'gross')))],
                 ['label' => 'Deductions', 'data' => array_reverse(array_map('floatval', array_column($periods, 'deductions')))],
-                ['label' => 'Net', 'data' => array_reverse(array_map('floatval', array_column($periods, 'net')))]])],
+                ['label' => 'Net', 'data' => array_reverse(array_map('floatval', array_column($periods, 'net')))]], '', ['format' => 'money'])],
             'tables' => [
                 self::table('Payroll periods', [['Period', 'period_name'], ['Group', 'payroll_group'], ['From', 'date_from', 'date'], ['To', 'date_to', 'date'], ['Status', 'status', 'badge'], ['Employees', 'employees'], ['Trip pay', 'trip_pay', 'money'], ['Deductions', 'deductions', 'money'], ['Net', 'net', 'money']], $periods, 'payroll'),
                 self::table('Completed trips without waybill', [['Trip', 'trip_ref'], ['Client', 'client'], ['Completed', 'completed_at', 'datetime']], $missing, 'trip_records'),
@@ -369,15 +370,15 @@ final class Analytics {
             'title' => 'Purchasing and Inventory Dashboard', 'subtitle' => date('F Y'),
             'alerts' => $low ? [['level' => 'danger', 'text' => count($low) . ' part(s) are at or below the reorder level.', 'page' => 'inventory']] : [],
             'cards' => [
-                self::card('Parts requests to act on', (int)self::val($p, "SELECT COUNT(*) v FROM part_requests WHERE status='Requested'"), 'bi-inbox', 'amber', 'inventory'),
-                self::card('Purchase requests pending', (int)self::val($p, "SELECT COUNT(*) v FROM purchase_requests WHERE status='Pending Approval'"), 'bi-hourglass-split', 'amber', 'purchasing'),
-                self::card('Approved, not yet ordered', (int)self::val($p, "SELECT COUNT(*) v FROM purchase_requests WHERE status='Approved'"), 'bi-cart-plus', 'blue', 'purchasing'),
-                self::card('Open purchase orders', (int)self::val($p, "SELECT COUNT(*) v FROM purchase_orders WHERE status='Ordered'"), 'bi-truck', 'blue', 'purchasing'),
-                self::card('Inventory value', self::val($p, 'SELECT COALESCE(SUM(quantity_on_hand*unit_cost),0) v FROM parts WHERE active=1'), 'bi-box-seam', 'green', 'inventory', '', 'money'),
-                self::card('Low-stock items', count($low), 'bi-exclamation-triangle', 'red', 'inventory'),
-                self::card('Parts purchased this month', self::val($p, "SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE category='Parts' AND incurred_on>=?", [$m0]), 'bi-bag-check', 'blue', 'purchasing', '', 'money'),
-                self::card('Parts issued this month', (int)self::val($p, "SELECT COALESCE(-SUM(quantity_delta),0) v FROM stock_movements WHERE movement_type='Stock Out' AND created_at>=?", [$m0]), 'bi-box-arrow-right', 'green', 'inventory', 'units'),
-                self::card('Suppliers', (int)self::val($p, 'SELECT COUNT(*) v FROM suppliers WHERE active=1'), 'bi-building', 'green', 'purchasing'),
+                self::card('Parts requests to act on', (int)self::val($p, "SELECT COUNT(*) v FROM part_requests WHERE status='Requested'"), 'bi-inbox', 'amber', 'inventory#_=req'),
+                self::card('Purchase requests pending', (int)self::val($p, "SELECT COUNT(*) v FROM purchase_requests WHERE status='Pending Approval'"), 'bi-hourglass-split', 'amber', 'purchasing#_=pr'),
+                self::card('Approved, not yet ordered', (int)self::val($p, "SELECT COUNT(*) v FROM purchase_requests WHERE status='Approved'"), 'bi-cart-plus', 'blue', 'purchasing#_=pr'),
+                self::card('Open purchase orders', (int)self::val($p, "SELECT COUNT(*) v FROM purchase_orders WHERE status='Ordered'"), 'bi-truck', 'blue', 'purchasing#_=po'),
+                self::card('Inventory value', self::val($p, 'SELECT COALESCE(SUM(quantity_on_hand*unit_cost),0) v FROM parts WHERE active=1'), 'bi-box-seam', 'green', 'inventory#_=parts', '', 'money'),
+                self::card('Low-stock items', count($low), 'bi-exclamation-triangle', 'red', 'inventory#_=parts'),
+                self::card('Parts purchased this month', self::val($p, "SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE category='Parts' AND incurred_on>=?", [$m0]), 'bi-bag-check', 'blue', 'purchasing#_=po', '', 'money'),
+                self::card('Parts issued this month', (int)self::val($p, "SELECT COALESCE(-SUM(quantity_delta),0) v FROM stock_movements WHERE movement_type='Stock Out' AND created_at>=?", [$m0]), 'bi-box-arrow-right', 'green', 'inventory#_=req', 'units'),
+                self::card('Suppliers', (int)self::val($p, 'SELECT COUNT(*) v FROM suppliers WHERE active=1'), 'bi-building', 'green', 'purchasing#_=sup'),
             ],
             'tables' => [
                 self::table('Low-stock items', [['Part no.', 'part_number'], ['Description', 'description'], ['On hand', 'quantity_on_hand'], ['Reorder level', 'reorder_level'], ['Unit', 'unit']], $low, 'inventory'),
@@ -397,12 +398,12 @@ final class Analytics {
             'title' => 'Maintenance Dashboard', 'subtitle' => 'Motorpool',
             'alerts' => $pending ? [['level' => 'warning', 'text' => $pending . ' repair request(s) need attention.', 'page' => 'maintenance']] : [],
             'cards' => [
-                self::card('Trucks under maintenance', (int)self::val($p, "SELECT COUNT(*) v FROM vehicles WHERE status='Under Maintenance'"), 'bi-tools', 'red', 'maintenance'),
-                self::card('Pending repair requests', $pending, 'bi-inbox', 'amber', 'maintenance'),
-                self::card('Roadside repairs open', (int)self::val($p, "SELECT COUNT(*) v FROM maintenance_jobs WHERE maintenance_type='Roadside Repair' AND status NOT IN ('Completed','Cancelled')"), 'bi-geo-alt', 'amber', 'maintenance'),
-                self::card('Scheduled preventive maintenance', (int)self::val($p, "SELECT COUNT(*) v FROM maintenance_schedules WHERE status='Scheduled'") + (int)self::val($p, "SELECT COUNT(*) v FROM maintenance_jobs WHERE maintenance_type='Preventive Maintenance' AND status NOT IN ('Completed','Cancelled')"), 'bi-calendar-check', 'blue', 'maintenance'),
-                self::card('Parts used this month', (int)self::val($p, 'SELECT COALESCE(SUM(quantity),0) v FROM maintenance_parts_used WHERE created_at>=?', [$m0]), 'bi-gear', 'blue', 'maintenance'),
-                self::card('Maintenance expenses this month', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM maintenance_costs WHERE incurred_on>=?', [$m0]) + self::val($p, 'SELECT COALESCE(SUM(quantity*unit_cost),0) v FROM maintenance_parts_used WHERE created_at>=?', [$m0]), 'bi-wallet2', 'red', 'maintenance', 'parts + labor + other', 'money'),
+                self::card('Trucks under maintenance', (int)self::val($p, "SELECT COUNT(*) v FROM vehicles WHERE status='Under Maintenance'"), 'bi-tools', 'red', 'maintenance#_=avail'),
+                self::card('Pending repair requests', $pending, 'bi-inbox', 'amber', 'maintenance#_=jobs'),
+                self::card('Roadside repairs open', (int)self::val($p, "SELECT COUNT(*) v FROM maintenance_jobs WHERE maintenance_type='Roadside Repair' AND status NOT IN ('Completed','Cancelled')"), 'bi-geo-alt', 'amber', 'maintenance#_=jobs'),
+                self::card('Scheduled preventive maintenance', (int)self::val($p, "SELECT COUNT(*) v FROM maintenance_schedules WHERE status='Scheduled'") + (int)self::val($p, "SELECT COUNT(*) v FROM maintenance_jobs WHERE maintenance_type='Preventive Maintenance' AND status NOT IN ('Completed','Cancelled')"), 'bi-calendar-check', 'blue', 'maintenance#_=sched'),
+                self::card('Parts used this month', (int)self::val($p, 'SELECT COALESCE(SUM(quantity),0) v FROM maintenance_parts_used WHERE created_at>=?', [$m0]), 'bi-gear', 'blue', 'maintenance#_=parts'),
+                self::card('Maintenance expenses this month', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM maintenance_costs WHERE incurred_on>=?', [$m0]) + self::val($p, 'SELECT COALESCE(SUM(quantity*unit_cost),0) v FROM maintenance_parts_used WHERE created_at>=?', [$m0]), 'bi-wallet2', 'red', 'maintenance#_=costs', 'parts + labor + other', 'money'),
             ],
             'tables' => [
                 self::table('Expected vehicle availability', [['Truck', 'plate_number'], ['Type', 'truck_type'], ['Job', 'job_number'], ['Work', 'maintenance_type'], ['Status', 'status', 'badge'], ['Expected available', 'expected_available', 'date']], self::underMaintenance($p), 'maintenance'),
@@ -421,10 +422,10 @@ final class Analytics {
             'cards' => [
                 self::card('Fund requests', (int)self::val($p, 'SELECT COUNT(*) v FROM fund_requests'), 'bi-cash-coin', 'blue', 'funds'),
                 self::card('Released allowances', self::val($p, "SELECT COALESCE(SUM(amount),0) v FROM fund_requests WHERE status IN ('Released','Completed')"), 'bi-send', 'green', 'funds', '', 'money'),
-                self::card('Invoices', (int)self::val($p, "SELECT COUNT(*) v FROM billings WHERE status<>'Cancelled'"), 'bi-receipt', 'blue', 'billing'),
-                self::card('Collections', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM collections'), 'bi-cash-stack', 'green', 'billing', '', 'money'),
-                self::card('Expenses', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM expenses'), 'bi-wallet2', 'red', 'finance', '', 'money'),
-                self::card('Disbursements', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM disbursements'), 'bi-box-arrow-up-right', 'amber', 'finance', '', 'money'),
+                self::card('Invoices', (int)self::val($p, "SELECT COUNT(*) v FROM billings WHERE status<>'Cancelled'"), 'bi-receipt', 'blue', 'billing#_=inv'),
+                self::card('Collections', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM collections'), 'bi-cash-stack', 'green', 'billing#_=col', '', 'money'),
+                self::card('Expenses', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM expenses'), 'bi-wallet2', 'red', 'finance#fin=money&fin:money=exp', '', 'money'),
+                self::card('Disbursements', self::val($p, 'SELECT COALESCE(SUM(amount),0) v FROM disbursements'), 'bi-box-arrow-up-right', 'amber', 'finance#fin=money&fin:money=disb', '', 'money'),
             ],
             'tables' => [self::table('Latest financial activity and approvals', [['When', 'created_at', 'datetime'], ['By', 'actor'], ['Area', 'area'], ['Action', 'action'], ['Record', 'record_ref'], ['Details', 'details']], $logs, 'audit_log')],
         ];
@@ -609,11 +610,15 @@ final class Analytics {
                 'parts' => (float)$cost['parts'], 'labor' => (float)$cost['labor'], 'other' => (float)$cost['other'],
                 'total_cost' => round((float)$cost['parts'] + (float)$cost['labor'] + (float)$cost['other'], 2)];
         }
+        // Chart lang: trucks na may gastos, pinakamalaki muna (ang table ay buo pa rin).
+        $costly = array_values(array_filter($rows, fn($r) => $r['total_cost'] > 0));
+        usort($costly, fn($x, $y) => $y['total_cost'] <=> $x['total_cost']);
         return ['title' => 'Fleet and maintenance', 'icon' => 'bi-tools',
             'note' => 'Down-truck days = days the truck was Under Maintenance at any time of the day (same as counting "DT" in the TRUCK STATUS sheet). Maintenance cost = parts used + labor + other costs.',
             'cards' => [self::card('Total down-truck days', array_sum(array_column($rows, 'down_days')), 'bi-calendar-x', 'red'),
                         self::card('Total maintenance cost', round(array_sum(array_column($rows, 'total_cost')), 2), 'bi-wallet2', 'red', null, '', 'money')],
-            'charts' => [self::chart('Maintenance cost per truck', 'bar', array_column($rows, 'plate_number'), [['label' => 'Parts', 'data' => array_column($rows, 'parts')], ['label' => 'Labor', 'data' => array_column($rows, 'labor')], ['label' => 'Other', 'data' => array_column($rows, 'other')]])],
+            'charts' => [self::chart('Maintenance cost per truck', 'bar', array_column($costly, 'plate_number'), [['label' => 'Parts', 'data' => array_column($costly, 'parts')], ['label' => 'Labor', 'data' => array_column($costly, 'labor')], ['label' => 'Other', 'data' => array_column($costly, 'other')]],
+                'Trucks with maintenance cost in the period, highest total first. Each bar = parts + labor + other.', ['format' => 'money', 'horizontal' => true, 'stacked' => true])],
             'tables' => [self::table('Per truck', [['Truck', 'plate_number'], ['Type', 'truck_type'], ['Status now', 'status', 'badge'], ['Completed trips', 'trips'], ['Down-truck days', 'down_days'], ['Parts', 'parts', 'money'], ['Labor', 'labor', 'money'], ['Other', 'other', 'money'], ['Total cost', 'total_cost', 'money']], $rows)]];
     }
 
@@ -645,9 +650,9 @@ final class Analytics {
             'cards' => [self::card('Billed', $totBilled, 'bi-receipt', 'blue', null, '', 'money'), self::card('Collected', array_sum($collected), 'bi-cash-coin', 'green', null, '', 'money'),
                         self::card('Expenses', $totExp, 'bi-wallet2', 'red', null, '', 'money'), self::card('Billed minus expenses', round($totBilled - $totExp, 2), 'bi-graph-up', 'green', null, '', 'money'),
                         self::card('Outstanding (all invoices)', self::outstanding($p), 'bi-exclamation-circle', 'amber', null, '', 'money'), self::card('Completed trips not yet billed', count($unbilled), 'bi-hourglass', 'amber')],
-            'charts' => [self::chart('Billed, collected and expenses per ' . $g, 'bar', array_keys($billed), [['label' => 'Billed', 'data' => array_values($billed)], ['label' => 'Collected', 'data' => array_values($collected)], ['label' => 'Expenses', 'data' => array_values($spent)]]),
-                         self::chart('Receivables aging', 'doughnut', array_keys($aging), [['label' => 'PHP', 'data' => array_values($aging)]]),
-                         self::chart('Expenses by category', 'doughnut', array_column($expCat, 'category'), [['label' => 'PHP', 'data' => array_map('floatval', array_column($expCat, 'total'))]])],
+            'charts' => [self::chart('Billed, collected and expenses per ' . $g, 'bar', array_keys($billed), [['label' => 'Billed', 'data' => array_values($billed)], ['label' => 'Collected', 'data' => array_values($collected)], ['label' => 'Expenses', 'data' => array_values($spent)]], '', ['format' => 'money']),
+                         self::chart('Receivables aging', 'doughnut', array_keys($aging), [['label' => 'PHP', 'data' => array_values($aging)]], 'Unpaid balance of open invoices by days past the due date (green = not yet due, red = oldest).', ['format' => 'money']),
+                         self::chart('Expenses by category', 'doughnut', array_column($expCat, 'category'), [['label' => 'PHP', 'data' => array_map('floatval', array_column($expCat, 'total'))]], '', ['format' => 'money'])],
             'tables' => [self::table('Billing by client', [['Client', 'client'], ['Invoices', 'invoices'], ['Billed', 'billed', 'money']], $byClient),
                          self::table('Billing by truck', [['Truck', 'truck'], ['Trips billed', 'trips'], ['Billed', 'billed', 'money']], $byTruck),
                          self::table('Profit per completed trip', [['Trip', 'trip_ref'], ['Client', 'client'], ['Origin', 'origin'], ['Destination', 'destination'], ['Revenue', 'revenue', 'money'], ['Trip expenses', 'expenses', 'money'], ['Net', 'net', 'money'], ['Margin %', 'margin']], $tripPnl),
@@ -662,6 +667,11 @@ final class Analytics {
         return ['title' => 'Payroll', 'icon' => 'bi-cash-stack', 'note' => 'Net pay = gross pay − total deductions (DRIVERS PAYROLL workbook).',
             'cards' => [self::card('Gross pay', round(array_sum(array_column($rows, 'gross')), 2), 'bi-cash', 'blue', null, '', 'money'), self::card('Trip pay', round(array_sum(array_column($rows, 'trip_pay')), 2), 'bi-truck', 'green', null, '', 'money'),
                         self::card('Deductions', round(array_sum(array_column($rows, 'deductions')), 2), 'bi-dash-circle', 'red', null, '', 'money'), self::card('Net pay', round(array_sum(array_column($rows, 'net')), 2), 'bi-cash-stack', 'green', null, '', 'money')],
+            // Chart ng parehong numero ng table (walang bagong computation).
+            'charts' => [self::chart('Gross, deductions and net per payroll period', 'bar', array_column($rows, 'period_name'), [
+                ['label' => 'Gross', 'data' => array_map('floatval', array_column($rows, 'gross'))],
+                ['label' => 'Deductions', 'data' => array_map('floatval', array_column($rows, 'deductions'))],
+                ['label' => 'Net', 'data' => array_map('floatval', array_column($rows, 'net'))]], '', ['format' => 'money'])],
             'tables' => [self::table('Payroll periods', [['Period', 'period_name'], ['From', 'date_from', 'date'], ['To', 'date_to', 'date'], ['Status', 'status', 'badge'], ['Employees', 'employees'], ['Regular wage', 'wage', 'money'], ['Trip pay', 'trip_pay', 'money'], ['Gross', 'gross', 'money'], ['Deductions', 'deductions', 'money'], ['Net', 'net', 'money']], $rows)]];
     }
 

@@ -24,6 +24,9 @@
  *    trip Ready for Dispatch -> Dispatcher Confirm Dispatch -> "Dispatched"
  *    -> updates / delay -> arrival checklist -> "Returned"
  *    -> dispatcher submits completed trip -> "Completed"
+ *    Billing (bagong PDF v7): sa Confirm Dispatch (ongoing na), gagawa ang
+ *    system ng billing draft batay sa route (Core/BillingDraft.php). Ang Billing
+ *    ang magve-verify ng documents at magfi-finalize kapag Completed na.
  *
  *  SCENARIO C (truck breakdown)
  *    Dispatcher Incident Report -> trip "On Hold - Incident Reported"
@@ -40,6 +43,7 @@ core('FleetState');
 core('Settings');
 core('Notify');
 core('TripFunds');
+core('BillingDraft');
 
 final class Trips {
     /**
@@ -640,6 +644,8 @@ final class Trips {
                 run($p, "UPDATE fund_requests SET status='Completed' WHERE id=?", [$fund['id']]);
                 audit($p, $u['id'], 'Finance', 'fund ' . $fund['id'], 'fund completed (truck dispatched)', $t['trip_ref']);
             }
+            // Bagong PDF v7: ongoing na ang trip, kaya gagawa ang system ng billing draft (batay sa route).
+            BillingDraft::createFor($p, $t, $u['id']);
             Notify::roles($p, ['operations_head', 'finance'], $redispatch ? 'Trip redispatched' : 'Trip dispatched',
                 $t['trip_ref'] . ($redispatch ? ' was redispatched (Second Attempt)' : ' was dispatched') . ' with truck ' . $v['plate_number'] . '.', 'trips');
             return ['trip_id' => $id, 'message' => ($redispatch ? 'Redispatch confirmed (Second Attempt).' : 'Dispatch confirmed.') . ' Trip status is now Dispatched.'];
@@ -766,7 +772,8 @@ final class Trips {
             $vs = FleetState::reconcile($p, (int)$t['vehicle_id'], $u['id'], 'Trip ' . $t['trip_ref'] . ' completed');
             FleetState::setCrew($p, [$t['driver_id'], $t['driver2_id'], $t['helper_id']], 'On Trip', 'Available');
             $wb = (int)one($p, 'SELECT COUNT(*) AS n FROM waybills WHERE trip_id=?', [$id])['n'];
-            Notify::roles($p, ['billing'], 'Completed trip', $t['trip_ref'] . ' is completed and ready for billing' . ($wb ? '.' : ' (no waybill yet).'), 'billing');
+            BillingDraft::createFor($p, $t, $u['id']); // kung walang draft (halimbawa lumang trip), gagawa ngayon
+            Notify::roles($p, ['billing'], 'Completed trip', $t['trip_ref'] . ' is completed. Verify its documents and finalize the billing' . ($wb ? '.' : ' (no waybill yet).'), 'billing');
             Notify::roles($p, ['operations_head'], 'Completed trip', $t['trip_ref'] . ' completed report submitted.', 'trip_records');
             return ['trip_id' => $id, 'message' => 'Trip completed. Truck is now ' . $vs . '.' . ($wb ? '' : ' Reminder: record the waybill so Billing and Payroll can use this trip.')];
         });

@@ -23,9 +23,9 @@ Kapag 5 beses kang nagkamali sa loob ng 15 minuto, maghihintay ka ng 15 minuto. 
 | Sidebar | Kaliwa | Mga page na pwede sa role mo. Pindutin ang grupo (halimbawa Trip & Dispatch) para makita ang laman |
 | Breadcrumb | Itaas | Kung nasaang page ka |
 | Bell | Kanang itaas | Mga abiso: bagong request, fund na kailangang aprubahan, incident |
-| Pangalan mo | Kanang itaas | Change password at Log out |
-| Summary cards | Itaas ng page | Bilang ng mahahalagang bagay. Pwedeng i-click para pumunta sa kaugnay na page |
-| Tables | Gitna | May Search, CSV download at Show more. Nasa dulo ng bawat row ang mga button na pwede mong gawin |
+| Pangalan mo | Kanang itaas | Wika ng screen (English o Tagalog, naka-save sa account mo), Change password at Log out |
+| Summary cards | Itaas ng page | Bilang ng mahahalagang bagay. Ang card na may maliit na arrow ay pwedeng i-click: bubukas ang mismong listahan o tab sa likod ng numero |
+| Tables | Gitna | May Search, CSV download, at Prev / Next (25 rows bawat page). Nasa dulo ng bawat row ang mga button na pwede mong gawin |
 
 Ang kulay ng status: berde = tapos o OK, asul = tuloy-tuloy pa, dilaw = naghihintay ng aksyon, pula = problema.
 
@@ -36,7 +36,7 @@ Ang kulay ng status: berde = tapos o OK, asul = tuloy-tuloy pa, dilaw = naghihin
 - Sa mahabang page, pindutin ang bilog na arrow sa kanang ibaba para bumalik sa itaas.
 - Ang malalaking page ay nahahati sa tabs, at ang ilang tab ay may maliliit na pills sa loob. Naaalala ang huling tab na binuksan mo.
 - Bawat table ay 25 rows bawat page. Gamitin ang **Prev** at **Next** sa ibaba. Ang Search at CSV ay sakop ang lahat ng rows, hindi lang ang nakikita.
-- Sa Dashboard: 2 charts muna (pindutin ang **Show more chart(s)** para sa iba), at ang mga table ay nasa iisang card. Pindutin ang pangalan ng table para makita ito; ang walang laman ay nakalista sa isang linya sa ibaba.
+- Sa Dashboard: 2 charts muna (pindutin ang **Show more chart(s)** para sa iba), at ang mga table ay nasa iisang card. Ituro ang mouse sa chart para makita ang eksaktong bilang at porsyento. Sa Reports & Analytics, ang Print ay may Print this section at Print all sections, kasama ang period at filters. Pindutin ang pangalan ng table para makita ito; ang walang laman ay nakalista sa isang linya sa ibaba.
 
 ## 2. Daloy ng isang trip
 

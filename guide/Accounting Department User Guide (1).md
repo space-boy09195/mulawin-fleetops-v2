@@ -16,10 +16,11 @@ Para sa Finance, Billing at Payroll ang gabay na ito. Lahat ng pera ng system ay
 | --- | --- |
 | Sidebar (kaliwa) | Mga page na pwede sa role mo. Pindutin ang grupo para makita ang laman |
 | Bell (kanang itaas) | Mga abiso, gaya ng fund na Ready for Release, trip na handa nang i-bill, o payroll na ipinasa sa Finance |
-| Pangalan mo (kanang itaas) | Change password at Log out |
-| Summary cards | Bilang at halaga ng mahahalagang bagay; pwedeng i-click |
-| Tables | May Search, CSV download (pwedeng buksan sa Excel) at Show more |
-| Print | Sa invoice, payment voucher, payslip at deduction form |
+| Pangalan mo (kanang itaas) | Wika ng screen (English o Tagalog, naka-save sa account mo), Change password at Log out |
+| Summary cards | Bilang at halaga ng mahahalagang bagay. Ang card na may maliit na arrow ay pwedeng i-click: bubukas ang mismong listahan o tab sa likod ng numero |
+| Charts | Ituro ang mouse sa chart para makita ang eksaktong halaga (may ₱ ang pera) at ang porsyento sa bilog na chart. Iisa ang kulay ng bawat kahulugan sa lahat ng chart |
+| Tables | May Search, CSV download (pwedeng buksan sa Excel), at Prev / Next (25 rows bawat page) |
+| Print | Sa invoice, payment voucher, payslip, deduction form, at Reports & Analytics (Print this section o Print all sections) |
 
 Kapag 5 beses kang nagkamali ng password sa loob ng 15 minuto, maghihintay ka ng 15 minuto. Kapag 60 minuto kang walang ginawa, mala-log out ka.
 

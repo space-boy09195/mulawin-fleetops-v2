@@ -37,7 +37,7 @@ Ang **Management Dashboard** ang unang lalabas. Ito ang buod ng buong kumpanya n
 | Trips this month, Completed, Ongoing, Pending / scheduled | Bilang ng trips |
 | Available trucks, Under maintenance | Lagay ng fleet ngayon |
 | Billed, Collected, Outstanding receivables, Expenses | Pera ngayong buwan |
-| Charts | Completed trips bawat buwan, billed vs collected vs expenses, trips ayon sa truck type at client, fleet availability, expenses ayon sa category |
+| Charts | Completed trips bawat buwan, billed vs collected vs expenses, trips ayon sa truck type at client, fleet availability, expenses ayon sa category. Ituro ang mouse sa chart para makita ang eksaktong halaga (may ₱ ang pera) at ang porsyento sa bilog na chart. Iisa ang kulay ng bawat kahulugan sa lahat ng chart (halimbawa berde ang Collected at Available, pula ang Expenses at Under Maintenance). |
 | Tables | Trucks under maintenance, mga dokumentong mag-e-expire, cash flow ng huling 6 na buwan |
 
 Nakikita ng Admin ang **lahat ng pahina** sa sidebar. Pero may mga gawain na para lang sa ibang role (halimbawa, dispatch ng dispatcher, release ng Finance, invoice ng Billing). Sa mga pahinang iyon, tingin lang ang Admin.
@@ -62,6 +62,8 @@ Punta sa **Reports & Administration > User Accounts**. Admin lang ang may pahina
 &#91;image: User Accounts\]
 
 Makikita ang listahan ng accounts: Username, Full name, Role, Shift, Active, Must change password, Last login at Created.
+
+**Wika ng screen:** bawat user ang pumipili ng **English** o **Tagalog** sa dropdown ng pangalan niya (kanang itaas, kung nasaan ang Log Out). English ang default at naka-save ito sa account. Sa Tagalog, nananatiling English ang mga pangalan ng page, mga status at termino ng PDF at Excel, at ang mga printout.
 
 ### Mga role
 
@@ -181,7 +183,7 @@ Admin ang pwedeng magbago ng lahat. Ang Finance ay sa Fuel, Billing, fund catego
 
 ### D. Reports & Analytics
 
-**Reports & Administration > Reports & Analytics**. Dito ang mga report at chart ng trips, fleet, maintenance, pera at payroll. Lahat ng table ay may **Search** at **CSV** para ma-download.
+**Reports & Administration > Reports & Analytics**. Dito ang mga report at chart ng trips, fleet, maintenance, pera at payroll. Lahat ng table ay may **Search** at **CSV** para ma-download. Sa itaas ng tabs nakasulat ang period at filters na ginagamit. Ang Print ay may dalawang pagpipilian: Print this section o Print all sections. Kasama sa print ang pangalan ng kumpanya, period, filters, kung sino ang nag-print, cards, charts at buong tables.
 
 ## 5. Audit: ano ang gagawin
 
@@ -192,7 +194,7 @@ Ang Audit ay **tumitingin lang**. Walang button na magbabago ng record. Ang trab
 ### A. Silipin ang dashboard
 
 1. Pagka-login, tingnan ang mga card: Fund requests, Released allowances, Invoices, Collections, Expenses at Disbursements.
-2. I-click ang card para pumunta sa pahina nito.
+2. I-click ang card na may maliit na arrow sa kanang itaas para buksan ang mismong listahan o tab sa likod ng numero.
 3. Sa **Latest financial activity and approvals**, makikita ang huling 25 na galaw. Pindutin ang **open** para sa buong Activity Log.
 
 ### B. Activity Log

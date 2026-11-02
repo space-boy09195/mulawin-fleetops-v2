@@ -16,9 +16,9 @@ Para sa Motorpool (maintenance) at Purchasing ang gabay na ito. Ayon sa FMS PDF,
 | --- | --- |
 | Sidebar (kaliwa) | Mga page na pwede sa role mo. Pindutin ang grupo para makita ang laman |
 | Bell (kanang itaas) | Mga abiso, gaya ng bagong incident, parts request o purchase na kailangang aksyunan |
-| Pangalan mo (kanang itaas) | Change password at Log out |
-| Summary cards | Bilang ng mahahalagang bagay; pwedeng i-click |
-| Tables | May Search, CSV download at Show more; nasa dulo ng row ang mga button |
+| Pangalan mo (kanang itaas) | Wika ng screen (English o Tagalog, naka-save sa account mo), Change password at Log out |
+| Summary cards | Bilang ng mahahalagang bagay. Ang card na may maliit na arrow ay pwedeng i-click: bubukas ang mismong tab sa likod ng numero |
+| Tables | May Search, CSV download, at Prev / Next; nasa dulo ng row ang mga button |
 
 Kapag 5 beses kang nagkamali ng password sa loob ng 15 minuto, maghihintay ka ng 15 minuto. Kapag 60 minuto kang walang ginawa, mala-log out ka.
 
@@ -29,7 +29,7 @@ Kapag 5 beses kang nagkamali ng password sa loob ng 15 minuto, maghihintay ka ng
 - Sa mahabang page, pindutin ang bilog na arrow sa kanang ibaba para bumalik sa itaas.
 - Ang malalaking page ay nahahati sa tabs, at ang ilang tab ay may maliliit na pills sa loob. Naaalala ang huling tab na binuksan mo.
 - Bawat table ay 25 rows bawat page. Gamitin ang **Prev** at **Next** sa ibaba. Ang Search at CSV ay sakop ang lahat ng rows, hindi lang ang nakikita.
-- Sa Dashboard: 2 charts muna (pindutin ang **Show more chart(s)** para sa iba), at ang mga table ay nasa iisang card. Pindutin ang pangalan ng table para makita ito; ang walang laman ay nakalista sa isang linya sa ibaba.
+- Sa Dashboard: 2 charts muna (pindutin ang **Show more chart(s)** para sa iba), at ang mga table ay nasa iisang card. Ituro ang mouse sa chart para makita ang eksaktong halaga at porsyento. Sa Reports & Analytics, ang Print ay may Print this section at Print all sections, kasama ang period at filters. Pindutin ang pangalan ng table para makita ito; ang walang laman ay nakalista sa isang linya sa ibaba.
 
 ## 2. Motorpool: ano ang makikita pagkapasok
 

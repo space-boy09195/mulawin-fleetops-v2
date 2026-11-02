@@ -45,6 +45,7 @@ const Trip = {
       .map(([k, v]) => `<tr><th class="text-muted small pe-3">${k}</th><td>${typeof v === 'string' && v.startsWith('<') ? v : UI.esc(v)}</td></tr>`).join('');
     const compare = Trip.compare(ins, d.checklist || []);
     UI.modal('Trip ' + UI.esc(t.trip_ref), `<table class="table table-sm">${info}</table>
+      ${t.origin && t.destination ? `<h6 class="mt-3"><i class="bi bi-map"></i> Route on the map</h6>${UI.mapHtml(t.origin, t.destination)}` : ''}
       <h6 class="mt-3">History (review, assignment, dispatch, incidents, completion)</h6>${UI.table([['When', 'created_at', 'datetime'], ['Event', 'event_type'], ['From', 'from_status', 'badge'], ['To', 'to_status', 'badge'], ['By', 'actor'], ['Notes', 'notes']], ev, { id: 'ev' + t.id })}
       <h6 class="mt-3">Progress, delivery and delay updates</h6>${UI.table([['When', 'created_at', 'datetime'], ['Type', 'update_type', 'badge'], ['Delay cause', 'delay_cause', 'badge'], ['Note', 'note'], ['By', 'actor']], up, { id: 'up' + t.id })}
       <h6 class="mt-3">Checklists: departure vs arrival</h6>${compare}`, null, { size: 'modal-xl', onShow: (w) => UI.activate(w) });
@@ -138,7 +139,14 @@ App.page('trips', {
         { name: 'container_number', label: 'Container no.', col: 3 }, { name: 'container_size', label: 'Size (e.g. 1X20, X40)', col: 3 },
         { name: 'seal_number', label: 'Seal no.', col: 3 }, { name: 'shipment_number', label: 'Shipment no.', col: 3 },
         { name: 'remarks', label: 'Delivery info / remarks', type: 'textarea', col: 12, rows: 2 },
-      ], 'Trips.create', { transform: (x) => { if (!x.route_id && (!x.origin || !x.destination)) throw new Error('Choose a route or type the origin and destination.'); return x; } });
+        { type: 'html', col: 12, html: '<div class="small fw-semibold mb-1"><i class="bi bi-map"></i> Route on the map</div><div id="tripMap"></div>' },
+      ], 'Trips.create', { transform: (x) => { if (!x.route_id && (!x.origin || !x.destination)) throw new Error('Choose a route or type the origin and destination.'); return x; },
+        // Mapa ng ruta: mula sa napiling route, o sa tina-type na origin at destination.
+        onShow: (w) => {
+          const rt = () => (d.routes || []).find(r => String(r.id) === w.querySelector('[name=route_id]').value);
+          UI.mapPreview(w.querySelector('#tripMap'), () => rt()?.origin || w.querySelector('[name=origin]').value, () => rt()?.destination || w.querySelector('[name=destination]').value,
+            ['route_id', 'origin', 'destination'].map(n => w.querySelector(`[name=${n}]`)));
+        } });
     }
 
     /**
@@ -157,6 +165,7 @@ App.page('trips', {
     const actions = (t) => {
       const b = []; const mine = Trip.mine(t); const s = t.status;
       b.push(UI.btn('view', 'Details', 'outline-secondary', 'bi-eye'));
+      if (t.origin && t.destination) b.push(UI.btn('map', 'Map', 'outline-secondary', 'bi-map'));
       if (can.review && s === 'Pending Review') b.push(UI.btn('review', 'Review and confirm', 'primary', 'bi-check2-square'));
       if ((can.reassign || mine) && s === 'Awaiting Resources') b.push(UI.btn('auto', 'Try auto-assign again', 'primary', 'bi-magic'));
       if (can.reassign && ['Awaiting Resources', 'Pre-Assigned', 'For Reschedule'].includes(s)) b.push(UI.btn('reassign', 'Assign manually', 'outline-primary', 'bi-person-gear'));
@@ -186,6 +195,7 @@ App.page('trips', {
       const crew = (type) => UI.opts((d.crew || []).filter(c => c.person_type === type), c => `${c.full_name} (${c.availability}${c.license_expiry ? ', lic. ' + c.license_expiry : ''})`);
       switch (act) {
         case 'view': return Trip.details(t, d);
+        case 'map': return UI.modal('Route of ' + UI.esc(t.trip_ref) + ': ' + UI.esc(t.origin) + ' → ' + UI.esc(t.destination), UI.mapHtml(t.origin, t.destination, 440), null, { size: 'modal-lg' });
         case 'review': return UI.formModal('Review and complete trip details ' + UI.esc(t.trip_ref), [
           { name: 'trip_id', type: 'hidden', value: t.id },
           { name: 'decision', label: 'Decision', type: 'select', required: true, options: [['approve', 'Confirm: set truck type and let the system assign'], ['reject', 'Reject']], placeholder: false, col: 12 },

@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-11-02 (security, limit bawat role, mapa)
+- **Lock ng account:** 5 maling password kahit saang computer = naka-lock nang 15 minuto (dati: bawat browser lang).
+  Ang "Reset password" ng Admin ay nag-a-unlock din.
+- **Recovery code ng Admin** (simple, walang email o setup): pangalan > Recovery code (kailangan ang kasalukuyang password),
+  i-print at itago. Sa login page: "Forgot the Admin password? Use the recovery code". Isang beses lang gumagana ang code.
+  May paalala sa dashboard ng Admin kapag wala pang code. Huling paraan para sa IT: `scripts/reset_password.php`.
+- Kapag napalitan ang password (ng user, ng Admin o gamit ang recovery code), mala-log out ang lahat ng lumang session ng account.
+- **Limit bawat role** (User Accounts > Limits per role): ilang active na account bawat role; dispatchers bawat shift (Day / Night);
+  0 = walang limit; Admin kahit 1. Default: tig-iisa. Ang punong role o shift ay hindi na lalabas sa pagpipilian. Sinusunod din
+  ito ng `scripts/create_user.php`.
+- **Mapa (Google Maps embed, walang API key at walang bayad, gaya ng sa mulawin_fleetops repo):** sa Add / Edit route, sa
+  paggawa ng trip, sa Trip details, at sa Map button ng Dispatch Board. May "Open in Google Maps" para makita ang layo sa km.
+- **DATABASE CHANGE:** `database/migrations/2026-11-04_account_security.sql` (bagong install: kasama na sa `schema.sql`).
+- Test: may checks na para dito sa `tests/system_test.py` (14c at mapa).
+
 ## 2026-11-02 (wika: English o Tagalog)
 - Sa dropdown ng pangalan (kung nasaan ang Log Out): **Wika / Language: English o Tagalog**. Naka-save sa account, kaya
   pareho saan mang computer o phone mag-login. English ang default.

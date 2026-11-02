@@ -48,6 +48,7 @@ Kapag tapos na, kusang bubukas ang report.
 | 11 Payroll | Attendance, cash advance, uniform, gross, deductions, net, finalize, reopen, submit, disburse |
 | 12 Formula Settings | Fuel price at projected P&L, fund categories (bagong preset para sa bagong request lang) |
 | 13 Documents at backup | Upload, bawal ang .exe, download, access per role, backup |
+| 14b-14c Wika at security | English o Tagalog; limit bawat role at shift; recovery code ng Admin (sa pansamantalang test Admin); lock pagkatapos ng 5 maling password |
 | 14 Access | Bawat role: lahat ng page sa menu ay bumubukas, at ang ibang pages ay bawal |
 | 15 Restore | Ibinabalik ang settings na binago ng test |
 | 16 Cleanup | Dine-deactivate ang test trucks at ginagawang Unavailable ang test crew |
@@ -67,6 +68,8 @@ Ang test accounts ay naka-save sa `tests/system_test_accounts.json` para magamit
 ## 5. Paalala
 
 - **Purchasing budget:** binabago ito ng test at ibinabalik ang amount sa dulo, pero ang "used" ay nagre-reset sa 0.
+- **Limits per role:** pansamantalang "walang limit" habang tumatakbo ang test (para makagawa ng test accounts), at ibinabalik sa dulo.
+  Gumagawa rin ito ng pansamantalang test Admin para sa recovery at lock test, na dine-deactivate pagkatapos.
 - **Payroll (C13):** hinihintay pa ang sagot ng kumpanya kung per trip lang ang sahod ng driver. Sinusundan ng test ang
   kasalukuyang Formula Settings, kaya gagana pa rin ito kahit baguhin ang settings.
 - Ang test data ay hindi binubura. Gumamit ng test copy, o i-reset ang XAMPP database pagkatapos.

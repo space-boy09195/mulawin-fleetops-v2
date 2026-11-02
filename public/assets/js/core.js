@@ -66,7 +66,7 @@ const App = {
     this.timer = setInterval(() => this.refreshBell(), 60000);
   },
 
-  loginScreen(message = '', username = '') {
+  loginScreen(message = '', username = '', ok = false) {
     document.getElementById('app').innerHTML = `
     <div class="login-page"><div class="login-shell">
       <aside class="login-visual" aria-label="Fleet operations overview">
@@ -78,7 +78,7 @@ const App = {
       <div class="login-card">
         <div class="login-brand"><div class="brand-icon brand-icon--compact"><i class="bi bi-truck-front-fill"></i></div>
           <h1 class="brand-name">Welcome back</h1><p class="brand-sub">Sign in with your work account.</p></div>
-        ${message ? `<div class="alert alert-danger py-2">${UI.esc(message)}</div>` : ''}
+        ${message ? `<div class="alert alert-${ok ? 'success' : 'danger'} py-2">${UI.esc(message)}</div>` : ''}
         <form id="loginForm" novalidate>
           <div class="mb-3"><label class="form-label" for="lgU">Username</label>
             <div class="input-group"><span class="input-group-text"><i class="bi bi-person-fill"></i></span>
@@ -89,10 +89,12 @@ const App = {
             <button class="btn btn-outline-secondary" type="button" id="lgEye" aria-label="Show password"><i class="bi bi-eye-slash"></i></button></div></div>
           <button class="btn btn-primary w-100 login-btn" type="submit"><i class="bi bi-box-arrow-in-right me-1"></i> Sign In</button>
           <div class="text-center mt-3"><span class="text-muted small">Forgot your password? Ask the Admin to reset it.</span></div>
+          <div class="text-center mt-1"><button type="button" class="btn btn-link btn-sm p-0" id="lgRecover">Forgot the Admin password? Use the recovery code</button></div>
         </form>
         <p class="login-footer-text">Mulawin FleetOps &copy; ${new Date().getFullYear()}</p>
       </div></div></div>`;
     document.getElementById('lgEye').onclick = () => { const p = document.getElementById('lgP'); p.type = p.type === 'password' ? 'text' : 'password'; };
+    document.getElementById('lgRecover').onclick = () => this.recoverScreen();
     document.getElementById('loginForm').onsubmit = async (e) => {
       e.preventDefault();
       const f = Object.fromEntries(new FormData(e.target));
@@ -103,6 +105,63 @@ const App = {
         location.hash = ''; await this.loadMe();
       } catch (err) { this.loginScreen(err.message, f.username || ''); document.getElementById(f.username ? 'lgP' : 'lgU')?.focus(); }
     };
+  },
+
+  /**
+   * Nakalimutan o na-hack ang Admin password (walang email ang system): ang recovery code na naka-print
+   * at nakatago (ginawa ng Admin sa dropdown ng pangalan > Recovery code) + bagong password.
+   * Isang beses lang gumagana ang code; gagawa ulit ng bago ang Admin pagkapasok.
+   */
+  recoverScreen(message = '') {
+    const card = document.querySelector('.login-card');
+    card.innerHTML = `<div class="login-brand"><div class="brand-icon brand-icon--compact"><i class="bi bi-shield-lock-fill"></i></div>
+        <h1 class="brand-name">Admin recovery</h1><p class="brand-sub">Use the printed recovery code of the Admin account.</p></div>
+      ${message ? `<div class="alert alert-danger py-2">${UI.esc(message)}</div>` : ''}
+      <form id="recForm" novalidate>
+        <div class="mb-2"><label class="form-label" for="rcU">Admin username</label><input class="form-control" id="rcU" name="username" autocomplete="username" required></div>
+        <div class="mb-2"><label class="form-label" for="rcC">Recovery code</label><input class="form-control text-uppercase" id="rcC" name="code" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" required></div>
+        <div class="mb-2"><label class="form-label" for="rcP">New password</label><input class="form-control" type="password" id="rcP" name="new_password" autocomplete="new-password" required>
+          <div class="form-text">${App.passwordMin || 8}+ characters with letters and numbers.</div></div>
+        <div class="mb-3"><label class="form-label" for="rcP2">Type the new password again</label><input class="form-control" type="password" id="rcP2" name="confirm" autocomplete="new-password" required></div>
+        <button class="btn btn-primary w-100" type="submit"><i class="bi bi-key me-1"></i> Reset the password</button>
+        <div class="text-center mt-3"><button type="button" class="btn btn-link btn-sm p-0" id="rcBack">Back to sign in</button></div>
+        <p class="small text-muted mt-3 mb-0">No recovery code? Ask IT to run <code>scripts/reset_password.php</code> on the server.</p>
+      </form>`;
+    document.getElementById('rcBack').onclick = () => this.loginScreen();
+    document.getElementById('recForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const f = Object.fromEntries(new FormData(e.target));
+      if (!f.username || !f.code || !f.new_password) return this.recoverScreen('Fill in all the fields.');
+      if (f.new_password !== f.confirm) return this.recoverScreen('The new passwords do not match.');
+      try {
+        const w = await this.request('index.php?api=whoami'); this.csrf = w.csrf;
+        const r = await this.request('index.php?api=recover', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: f.username, code: f.code, new_password: f.new_password, csrf: this.csrf }) });
+        this.loginScreen(r.data?.message || 'Password reset.', f.username, true);
+      } catch (err) { this.recoverScreen(err.message); }
+    };
+  },
+
+  /** Admin: gumawa ng bagong recovery code (kailangan ang kasalukuyang password). Ipinapakita nang isang beses. */
+  recoveryCode() {
+    UI.modal('Recovery code of the Admin account', `<p class="small">If the Admin password is forgotten or the account is hacked, this code lets you set a new password from the sign-in page
+      (<b>Forgot the Admin password?</b>). It works <b>one time</b>. Making a new code cancels the old one.</p>
+      ${UI.fields([{ name: 'current_password', label: 'Your current password', type: 'password', required: true }])}`, async (d, form, wrap) => {
+      const r = await App.api('Admin.recovery_code_create', d);
+      App.me.user.recovery_ready = true;
+      document.getElementById('recAlert')?.remove();
+      const code = r.code;
+      const sheet = `<div style="font-family:Arial;padding:24px;border:2px solid #0e4a26;max-width:620px">
+        <h2 style="margin:0 0 6px">${UI.esc((App.me.company || {}).name || 'Mulawin FleetOps')}</h2>
+        <h3 style="margin:0 0 14px">Mulawin FleetOps: Admin recovery code</h3>
+        <p>Admin username: <b>${UI.esc(App.me.user.username)}</b></p>
+        <p style="font-size:28px;font-weight:bold;letter-spacing:3px;border:1px dashed #333;padding:12px;text-align:center">${UI.esc(code)}</p>
+        <p>Use it on the sign-in page: <b>Forgot the Admin password?</b> It works one time only. Keep this paper in a safe place (for example a sealed envelope with the owner).</p>
+        <p style="font-size:12px;color:#555">Made on ${UI.esc(new Date().toLocaleString('en-PH'))}</p></div>`;
+      UI.modal('Save this recovery code now', `<div class="alert alert-warning small">This code is shown only once. Print it or write it down, then keep it in a safe place.</div>
+        <div class="text-center display-6 fw-bold py-3 no-i18n" style="letter-spacing:3px">${UI.esc(code)}</div>`, null,
+        { size: '', extraFooter: '<button type="button" class="btn btn-primary btn-sm" id="rcPrint"><i class="bi bi-printer"></i> Print</button>',
+          onShow: (w) => { w.querySelector('#rcPrint').onclick = () => UI.print(sheet); } });
+    }, { size: '', submit: 'Make a new code' });
   },
 
   passwordScreen(forced) {
@@ -174,6 +233,7 @@ const App = {
                 <div class="dropdown-divider"></div><div class="dropdown-header small py-1">Language</div>
                 ${[['en', 'English'], ['tl', 'Tagalog']].map(([k, l]) => `<button class="dropdown-item lang-item" type="button" data-lang="${k}"><i class="bi ${(u.language || 'en') === k ? 'bi-check2' : 'bi-blank'} me-2"></i><span class="no-i18n">${l}</span></button>`).join('')}
                 <div class="dropdown-divider"></div><button class="dropdown-item" id="chgPw"><i class="bi bi-key me-2"></i>Change password</button>
+                ${u.role === 'admin' ? '<button class="dropdown-item" id="recCode"><i class="bi bi-shield-lock me-2"></i>Recovery code</button>' : ''}
                 <button class="dropdown-item profile-logout" id="logoutBtn"><i class="bi bi-box-arrow-right me-2"></i>Log Out</button></div></div>
           </div>
         </header>
@@ -200,6 +260,7 @@ const App = {
     overlay.onclick = () => { sidebar.classList.remove('mobile-open'); overlay.classList.remove('active'); };
     document.getElementById('logoutBtn').onclick = () => { if (confirm('Log out of Mulawin FleetOps?')) this.logout(); };
     document.getElementById('chgPw').onclick = () => this.passwordScreen(false);
+    document.getElementById('recCode')?.addEventListener('click', () => this.recoveryCode());
     // Wika ng screen: naka-save sa account, kaya pareho saan mang computer o phone mag-login.
     document.querySelectorAll('.lang-item').forEach(b => b.onclick = async () => {
       if (b.dataset.lang === (this.me.user.language || 'en')) return;
@@ -601,6 +662,28 @@ UI.drawChart = (canvas) => {
   const c = UI._charts[canvas.dataset.chart]; if (!c || typeof Chart === 'undefined') return;
   new Chart(canvas, UI.chartConfig(c));
 };
+// ------------------------------------------------------------------ mapa (Google Maps embed, walang API key at walang bayad)
+// Kapareho ng ginamit sa mulawin_fleetops repo (system-hardening branch): maps.google.com/maps?...&output=embed.
+// Para lang makita ang ruta; ang km ay tina-type pa rin sa Route (makikita ang layo sa "Open in Google Maps").
+UI.mapPlace = (p) => { const s = String(p || '').trim(); return s && !/philippines/i.test(s) ? s + ', Philippines' : s; };
+UI.mapEmbedUrl = (o, d) => d
+  ? 'https://maps.google.com/maps?saddr=' + encodeURIComponent(UI.mapPlace(o)) + '&daddr=' + encodeURIComponent(UI.mapPlace(d)) + '&output=embed'
+  : 'https://maps.google.com/maps?q=' + encodeURIComponent(UI.mapPlace(o)) + '&output=embed';
+UI.mapOpenUrl = (o, d) => 'https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(UI.mapPlace(o)) + '&destination=' + encodeURIComponent(UI.mapPlace(d)) + '&travelmode=driving';
+/** Mapa ng ruta (origin -> destination) na may link para buksan sa Google Maps. */
+UI.mapHtml = (o, d, h = 300) => (o && d) ? `<div class="route-map no-print"><iframe title="Route map" src="${UI.esc(UI.mapEmbedUrl(o, d))}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" style="width:100%;height:${h}px;border:0;border-radius:8px"></iframe>
+  <div class="small mt-1"><a href="${UI.esc(UI.mapOpenUrl(o, d))}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open in Google Maps</a> <span class="text-muted">(shows the distance in km)</span></div></div>` : '';
+/** Live na preview sa form: babaguhin ang mapa habang tina-type ang origin at destination. */
+UI.mapPreview = (box, getO, getD, inputs) => {
+  let t = null;
+  const draw = () => {
+    const o = (getO() || '').trim(), d = (getD() || '').trim();
+    box.innerHTML = o.length >= 3 && d.length >= 3 ? UI.mapHtml(o, d, 260) : '<div class="table-empty small">Type the origin and destination to see the route on the map.</div>';
+  };
+  inputs.forEach(i => i && i.addEventListener(i.tagName === 'SELECT' ? 'change' : 'input', () => { clearTimeout(t); t = setTimeout(draw, 700); }));
+  draw();
+};
+
 /** Larawan (PNG) ng chart para sa print. */
 UI.chartImage = (c, w = 900, h = 340) => {
   if (typeof Chart === 'undefined' || UI.chartEmpty(c)) return '';

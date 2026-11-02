@@ -6,23 +6,68 @@ App.page('users', {
   title: 'User Accounts',
   subtitle: 'Individual accounts, roles (FMS PDF user roles), activate / deactivate, password reset.',
   render(ctx) {
-    const d = ctx.data, roles = Object.entries(d.roles);
-    const form = (u = {}) => UI.formModal(u.id ? 'Edit account' : 'Create account', [{ name: 'id', type: 'hidden', value: u.id },
-      ...(u.id ? [] : [{ name: 'username', label: 'Username', required: true, col: 6 }, { name: 'password', label: 'Temporary password', type: 'password', required: true, col: 6, help: (App.me.passwordMin || 8) + '+ characters with letters and numbers. The user changes it at first login.' }]),
-      { name: 'full_name', label: 'Full name', required: true, value: u.full_name, col: 6 },
-      { name: 'role', label: 'Role', type: 'select', required: true, options: roles, value: u.role, col: 3 },
-      { name: 'shift', label: 'Shift (dispatchers)', type: 'select', options: UI.list(['Day', 'Night']), value: u.shift, col: 3 }], 'Admin.user_save');
+    const d = ctx.data, roles = Object.entries(d.roles), lim = d.limits || {}, cnt = d.counts || {};
+    const isDisp = (r) => r === 'car_carrier_dispatcher' || r === 'container_wingvan_dispatcher';
+    // Limit bawat role: ang punong role (o shift ng dispatcher) ay hindi na lalabas sa pagpipilian.
+    const shiftFree = (r, sh, u) => !(+lim[r] > 0) || (cnt[r + '|' + sh] || 0) - (u.role === r && u.shift === sh && +u.active ? 1 : 0) < +lim[r];
+    const roleFree = (r, u) => {
+      if (u.role === r) return true;
+      if (!(+lim[r] > 0)) return true;
+      return isDisp(r) ? ['Day', 'Night'].some(sh => shiftFree(r, sh, u)) : (cnt[r] || 0) < +lim[r];
+    };
+    const form = (u = {}) => {
+      const choices = roles.filter(([r]) => roleFree(r, u));
+      if (!choices.length) return UI.toast('All roles are full. Change the limits in the "Limits per role" tab.', 'warn');
+      UI.formModal(u.id ? 'Edit account' : 'Create account', [{ name: 'id', type: 'hidden', value: u.id },
+        ...(u.id ? [] : [{ name: 'username', label: 'Username', required: true, col: 6 }, { name: 'password', label: 'Temporary password', type: 'password', required: true, col: 6, help: (App.me.passwordMin || 8) + '+ characters with letters and numbers. The user changes it at first login.' }]),
+        { name: 'full_name', label: 'Full name', required: true, value: u.full_name, col: 6 },
+        { name: 'role', label: 'Role', type: 'select', required: true, options: choices, value: u.role, col: 3, help: choices.length < roles.length ? 'Full roles are hidden (see Limits per role).' : '' },
+        { name: 'shift', label: 'Shift (dispatchers)', type: 'select', options: UI.list(['Day', 'Night']), value: u.shift, col: 3 }], 'Admin.user_save', {
+          onShow: (w) => {
+            const rs = w.querySelector('[name=role]'), ss = w.querySelector('[name=shift]');
+            const sync = () => {
+              const r = rs.value, keep = ss.value;
+              const shifts = isDisp(r) ? ['Day', 'Night'].filter(sh => shiftFree(r, sh, u)) : [];
+              ss.innerHTML = '<option value="">—</option>' + shifts.map(sh => `<option value="${sh}">${sh}</option>`).join('');
+              ss.value = shifts.includes(keep) ? keep : (shifts.length === 1 ? shifts[0] : '');
+              ss.disabled = !isDisp(r); ss.required = isDisp(r);
+            };
+            rs.addEventListener('change', sync); sync();
+          } });
+    };
     ctx.tools.innerHTML = '<button class="btn btn-sm btn-primary" id="addU"><i class="bi bi-person-plus"></i> Create account</button>';
     document.getElementById('addU').onclick = () => form();
-    ctx.el.innerHTML = UI.table([['Username', 'username'], ['Full name', 'full_name'], ['Role', 'role', (x) => UI.esc(d.roles[x] || x)], ['Shift', 'shift'], ['Active', 'active', (x) => UI.badge(+x ? 'Active' : 'Inactive')],
+    const accounts = () => UI.table([['Username', 'username'], ['Full name', 'full_name'], ['Role', 'role', (x) => UI.esc(d.roles[x] || x)], ['Shift', 'shift'], ['Active', 'active', (x) => UI.badge(+x ? 'Active' : 'Inactive')],
       ['Must change password', 'must_change_password', 'yes'], ['Last login', 'last_login_at', 'datetime'], ['Created', 'created_at', 'datetime']], d.users, {
       id: 'users', actions: (u) => UI.btn('edit', 'Edit', 'outline-primary') + UI.btn('pw', 'Reset password', 'outline-warning') + (+u.id !== +App.me.user.id ? UI.btn('tog', +u.active ? 'Deactivate' : 'Activate', 'outline-danger') : ''),
       onAction(act, u) {
         if (act === 'edit') form(u);
-        if (act === 'pw') UI.formModal('Reset password of ' + UI.esc(u.username), [{ name: 'user_id', type: 'hidden', value: u.id }, { name: 'password', label: 'New temporary password', type: 'password', required: true, col: 12 }], 'Admin.user_password', { size: '' });
+        if (act === 'pw') UI.formModal('Reset password of ' + UI.esc(u.username), [{ name: 'user_id', type: 'hidden', value: u.id }, { name: 'password', label: 'New temporary password', type: 'password', required: true, col: 12 }], 'Admin.user_password', { size: '', intro: 'The user is signed out everywhere, the account is unlocked, and the user changes this password at the next login.' });
         if (act === 'tog') UI.confirmAction(+u.active ? 'Deactivate account' : 'Activate account', `${+u.active ? 'Deactivate' : 'Activate'} ${UI.esc(u.username)}?`, 'Admin.user_toggle', { user_id: u.id, active: +u.active ? 0 : 1 }, { danger: !!+u.active });
       } });
-    UI.activate(ctx.el);
+    // Limit bawat role (0 = walang limit). Dispatchers: bawat shift. Admin: kahit 1.
+    const limits = () => {
+      const rows = roles.map(([r, label]) => {
+        const now = isDisp(r) ? `Day ${cnt[r + '|Day'] || 0} · Night ${cnt[r + '|Night'] || 0}` : String(cnt[r] || 0);
+        const over = +lim[r] > 0 && (isDisp(r) ? ['Day', 'Night'].some(sh => (cnt[r + '|' + sh] || 0) > +lim[r]) : (cnt[r] || 0) > +lim[r]);
+        return `<tr><td>${UI.esc(label)}</td><td>${now}${over ? ' <span class="badge text-bg-warning">over the limit</span>' : ''}</td>
+          <td style="max-width:140px"><input class="form-control form-control-sm" type="number" min="${r === 'admin' ? 1 : 0}" max="50" name="${r}" value="${UI.esc(lim[r] ?? 0)}"></td>
+          <td class="small text-muted">${isDisp(r) ? 'per shift (Day and Night)' : (r === 'admin' ? 'at least 1' : '')}</td></tr>`;
+      }).join('');
+      return `<div class="card card-gap"><div class="card-header-custom"><h3 class="card-title-custom">Limits per role</h3></div><div class="card-body-custom">
+        <p class="small text-muted mb-2">How many <b>active</b> accounts each role can have. <b>0 = no limit.</b> A full role is hidden from the role choices when creating an account.
+        A deactivated account frees its place. For dispatchers the limit is per shift.</p>
+        <form id="limForm"><table class="table table-sm align-middle"><thead><tr><th>Role</th><th>Active now</th><th>Limit</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+        <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-save"></i> Save limits</button></form></div></div>`;
+    };
+    UI.tabs(ctx.el, [['acc', 'Accounts', accounts], ['lim', 'Limits per role', (b) => {
+      b.innerHTML = limits();
+      b.querySelector('#limForm').onsubmit = async (e) => {
+        e.preventDefault();
+        try { const r = await App.api('Admin.role_limits_save', { limits: UI.formData(e.target) }); UI.result(r); ctx.reload(); }
+        catch (x) { UI.toast(x.message, 'error'); }
+      };
+    }]]);
   },
 });
 

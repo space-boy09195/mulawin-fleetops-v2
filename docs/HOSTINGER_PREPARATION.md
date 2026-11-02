@@ -23,6 +23,7 @@ migration file → open the system and check. Migrations so far:
 | File | What it does |
 |---|---|
 | `2026-11-02_billing_drafts.sql` | Creates `billing_drafts` (FMS PDF v7 billing draft) and makes drafts for trips already on the road or completed but not yet invoiced. Safe to import once. |
+| `2026-11-04_account_security.sql` | Adds `users.failed_logins`, `locked_until`, `recovery_hash` and `password_changed_at` (account lock, Admin recovery code, sign out of old sessions after a password change). Safe to import twice. Until it is imported, login still works without these protections. |
 | `2026-11-03_user_language.sql` | Adds `users.language` (screen language per account: English default or Tagalog). Safe to import twice. Until it is imported the system still works in English, but changing the language shows a message to import it. |
 
 ## Automated test sa Hostinger TEST COPY

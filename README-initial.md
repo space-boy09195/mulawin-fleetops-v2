@@ -153,6 +153,14 @@ at ang mga printout. Para magpalit o magdagdag ng salin: i-edit ang `public/asse
 
 - Password: at least 8 characters na may letra at numero (hal. `test1234`). Palitan ang `PASSWORD_MIN_LENGTH` sa `backend/bootstrap.php` kung gusto ng mas mahaba.
 - Password hashing, CSRF token sa bawat save, login throttle, auto logout (SESSION_IDLE_MINUTES), role check sa server.
+- **Lock ng account:** 5 maling password (kahit saang computer) = naka-lock nang 15 minuto. Ang reset ng Admin ay nag-a-unlock din.
+- **Recovery code ng Admin** (walang email ang system): pangalan > Recovery code, i-print at itago. Kapag nakalimutan o na-hack ang
+  Admin password: sa login page, **Forgot the Admin password?** Isang beses lang gumagana ang code. Kapag napalitan ang password,
+  mala-log out ang lahat ng lumang session ng account. Huling paraan (IT, may access sa server): `php scripts/reset_password.php USERNAME`.
+- **Limit bawat role:** User Accounts > Limits per role (default: tig-iisa; dispatchers bawat shift; 0 = walang limit). Ang punong
+  role ay hindi lalabas sa pagpipilian.
+- **Mapa:** sa Add route at sa trip (Details at Map button) may Google Maps na mapa ng ruta (walang API key at walang bayad). Ang km ay
+  tina-type pa rin sa Route; makikita ang layo sa "Open in Google Maps".
 - Documents: PDF/JPG/PNG/WebP, 10 MB bawat file, hanggang 20 sabay; random file names sa `storage/private`; download lang via login + role check.
 - Ang `.htaccess` ay nagbabawal sa `backend`, `config`, `database`, `docs`, `scripts`, `storage`, `tests`, `.env` at `.sql` (na-test sa Apache).
 - Backup: Reports & Administration > Backup (SQL file). Kopyahin din ang `storage/private`. Restore: import sa bagong empty database.

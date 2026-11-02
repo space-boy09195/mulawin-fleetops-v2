@@ -354,6 +354,11 @@ def setup_accounts(admin_user, admin_pw, given, interactive, reuse=True):
     REC.accounts.append({'role': 'admin', 'username': a.user, 'password': a.pw if a.pw != admin_pw else '(ibinigay ng tester)',
                          'source': 'tester'})
     U['admin'] = a
+    # Limit bawat role: pansamantalang "walang limit" para makagawa ng test accounts (ibinabalik sa dulo).
+    lim = a.page('users', quiet=True).get('limits')
+    if lim:
+        SNAP['limits'] = lim
+        a.act('Admin.role_limits_save', {'limits': {r: '0' for r in ROLES}}, label='Role limits off during the test (restored at the end)')
     saved = load_saved_accounts().get(BASE, {}) if reuse else {}
     created = dict(saved)
     for role in ROLES:
@@ -455,6 +460,10 @@ def snapshot_settings():
 def restore_settings():
     REC.section('15. Ibalik ang settings na binago ng test')
     a = U['admin']
+    if SNAP.get('limits'):
+        a.act('Admin.role_limits_save', {'limits': {r: str(v) for r, v in SNAP['limits'].items()}}, label='Restore the limits per role')
+        now = a.page('users').get('limits') or {}
+        REC.check(all(int(now.get(r, -1)) == int(v) for r, v in SNAP['limits'].items()), 'Limits per role are back to the original values')
     for key in ('inspection_min_minutes', 'fuel_price_per_liter'):
         v = SNAP.get('values', {}).get(key)
         if not v:
@@ -491,9 +500,10 @@ def t_security():
     bad = Api(U['audit'].user, 'wrong-password-123')
     ok, err = bad.login(record=False)
     REC.check(not ok, 'Wrong password is refused', err)
+    bad.user = f'nobody_{RUN}'  # ibang username para hindi ma-lock ang test account (ang lock ng account ay nasa 14c)
     for _ in range(4):
         bad.login(record=False)
-    bad.pw = U['audit'].pw
+    bad.user, bad.pw = U['audit'].user, U['audit'].pw
     ok, err = bad.login(record=False)
     REC.check(not ok and 'Too many' in (err or ''), 'After 5 wrong tries, even the right password waits 15 minutes (same browser session)', err)
     s = requests.Session()
@@ -1067,6 +1077,67 @@ def t_language():
         REC.check((api.me.get('user') or {}).get('language') == 'en', f'{ROLE_LABEL[role]}: back to English')
 
 
+def t_account_security():
+    REC.section('14c. Account security: limit bawat role, recovery code, lock ng account')
+    a = U['admin']
+    a.act('Admin.role_limits_save', {'limits': {'admin': '0'}}, expect=False, label='The Admin limit cannot be 0')
+    a.act('Admin.role_limits_save', {'limits': {'payroll': 'x'}}, expect=False, label='Limit must be a number')
+    a.act('Admin.role_limits_save', {'limits': {'payroll': '1'}}, label='Payroll limit = 1')
+    a.act('Admin.user_save', {'username': f't_pay2_{RUN}', 'full_name': 'Second payroll', 'role': 'payroll', 'password': gen_password()}, expect=False,
+          label='A full role cannot get another account')
+    a.act('Admin.role_limits_save', {'limits': {'car_carrier_dispatcher': '1'}}, label='Car carrier dispatchers = 1 per shift')
+    a.act('Admin.user_save', {'username': f't_ccd2_{RUN}', 'full_name': 'Second day dispatcher', 'role': 'car_carrier_dispatcher', 'shift': 'Day',
+                               'password': gen_password()}, expect=False, label='Day shift is full (per shift limit)')
+    a.act('Admin.role_limits_save', {'limits': {'payroll': '0', 'car_carrier_dispatcher': '0'}}, label='Back to no limit for the rest of the test')
+    page = a.page('users')
+    REC.check('limits' in page and 'counts' in page, 'User Accounts shows the limits and the active count per role')
+    # Pansamantalang Admin para sa recovery at lock test (hindi ginagalaw ang password ng Admin ng tester).
+    n_admin = int((page.get('counts') or {}).get('admin', 1))
+    a.act('Admin.role_limits_save', {'limits': {'admin': str(n_admin + 1)}}, label='Admin limit +1 for a temporary test Admin (restored at the end)')
+    tmp_user, tmp_temp, tmp_pw = f't_adm_{RUN}', gen_password(), gen_password()
+    a.act('Admin.user_save', {'username': tmp_user, 'full_name': f'Temporary Admin {RUN}', 'role': 'admin', 'password': tmp_temp}, label='Temporary Admin for the recovery test')
+    t = Api(tmp_user, tmp_temp, 'admin')
+    t.login()
+    ensure_password_changed(t, False, tmp_pw)
+    REC.check((t.me.get('user') or {}).get('recovery_ready') is False, 'New Admin has no recovery code yet (dashboard reminder shows)')
+    t.act('Admin.recovery_code_create', {'current_password': 'wrong-pass-1'}, expect=False, label='Recovery code needs the current password')
+    code = t.act('Admin.recovery_code_create', {'current_password': t.pw}, label='Admin makes a recovery code').get('code', '')
+    REC.check(bool(re.fullmatch(r'[A-Z2-9]{4}(-[A-Z2-9]{4}){3}', code)), 'Recovery code looks like XXXX-XXXX-XXXX-XXXX')
+    U['finance'].act('Admin.recovery_code_create', {'current_password': U['finance'].pw}, expect=False, label='Only Admin has a recovery code')
+    rec = Api('(recovery page)', '')
+    def recover(user, c, new):
+        rec.s = requests.Session(); rec.whoami()
+        r = rec.s.post(BASE + '?api=recover', json={'username': user, 'code': c, 'new_password': new, 'csrf': rec.csrf}, timeout=TIMEOUT)
+        return rec._json(r)
+    j = recover(tmp_user, 'AAAA-BBBB-CCCC-DDDD', gen_password())
+    REC.check(not j.get('ok'), 'Recovery: wrong code is refused', j.get('error'))
+    j = recover(U['finance'].user, code, gen_password())
+    REC.check(not j.get('ok'), 'Recovery: only for Admin accounts', j.get('error'))
+    new_pw = gen_password()
+    j = recover(tmp_user, code.lower().replace('-', ' '), new_pw)
+    REC.check(j.get('ok'), 'Recovery: right code sets a new password (dashes and small letters are fine)', (j.get('data') or {}).get('message') or j.get('error'))
+    ok, err = t.page_status('dashboard')
+    REC.check(not ok and 'password was changed' in (err or ''), 'The old session of that Admin is signed out after the reset', err)
+    j = recover(tmp_user, code, gen_password())
+    REC.check(not j.get('ok'), 'Recovery code works one time only', j.get('error'))
+    t = Api(tmp_user, new_pw, 'admin')
+    ok, _ = t.login()
+    REC.check(ok, 'Login with the new password works')
+    # Lock ng account: 5 maling password kahit magkakaibang browser session
+    for i in range(4):
+        Api(tmp_user, f'wrong-{i}-pass').login(record=False)
+    ok, err = Api(tmp_user, 'wrong-4-pass').login(record=False)
+    REC.check(not ok and 'locked' in (err or ''), '5 wrong passwords (from different browsers) lock the account', err)
+    ok, err = Api(tmp_user, new_pw).login(record=False)
+    REC.check(not ok and 'locked' in (err or ''), 'Even the right password waits while the account is locked', err)
+    tid = find(a.page('users').get('users'), username=tmp_user).get('id')
+    reset_pw = gen_password()
+    a.act('Admin.user_password', {'user_id': tid, 'password': reset_pw}, label='Admin resets the password (also unlocks the account)')
+    ok, err = Api(tmp_user, reset_pw).login(record=False)
+    REC.check(ok, 'After the reset the account is unlocked', err)
+    a.act('Admin.user_toggle', {'user_id': tid, 'active': 0}, label='Deactivate the temporary Admin')
+
+
 def t_access():
     REC.section('14. Access per role: allowed pages load, other pages are blocked')
     all_pages = set()
@@ -1261,6 +1332,31 @@ def t_browser():
             except Exception as e:
                 REC.fail(f'{ROLE_LABEL[role]}: phone view', str(e).splitlines()[0])
             ctx.close()
+        # Mapa: preview ng ruta sa Add route (Google Maps embed na walang API key)
+        try:
+            a = U['admin']
+            ctx = browser.new_context(viewport={'width': 1440, 'height': 900})
+            page = ctx.new_page()
+            page.set_default_timeout(20000)
+            page.goto(app)
+            page.fill('#lgU', a.user)
+            page.fill('#lgP', a.pw)
+            page.click('button[type=submit]')
+            page.wait_for_selector('#pageContent')
+            page.goto(app + '#clients')
+            page.wait_for_selector('[data-n="r"]')
+            page.click('[data-n="r"]')
+            page.wait_for_selector('.modal.show [name=origin]')
+            page.fill('.modal.show [name=origin]', 'Batangas Port')
+            page.fill('.modal.show [name=destination]', 'Cabuyao, Laguna')
+            page.wait_for_timeout(1300)
+            src = page.get_attribute('.modal.show iframe', 'src') or ''
+            link = page.get_attribute('.modal.show .route-map a', 'href') or ''
+            REC.check('maps.google.com/maps?saddr=' in src and 'output=embed' in src and 'google.com/maps/dir' in link,
+                      'Add route: map preview of the route and "Open in Google Maps" link', src[:120])
+            ctx.close()
+        except Exception as e:
+            REC.fail('Route map preview', str(e).splitlines()[0])
         # Tagalog: buong menu ng Admin sa Tagalog (walang error), at palit pabalik sa English gamit ang dropdown ng pangalan
         try:
             a = U['admin']
@@ -1449,7 +1545,7 @@ def main():
     ok = setup_accounts(admin_user, admin_pw, given, interactive, reuse=not args.new_accounts)
     if ok:
         sections = [t_security, t_master, t_scenario_a, t_scenario_b, t_wingvan, t_maintenance, t_purchasing, t_billing, t_finance,
-                    t_payroll, t_formula, t_documents, t_language, t_access]
+                    t_payroll, t_formula, t_documents, t_language, t_account_security, t_access]
         try:
             for fn in sections:
                 try:

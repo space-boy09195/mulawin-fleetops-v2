@@ -12,13 +12,15 @@
 declare(strict_types=1);
 core('Settings');
 
+core('AccountSecurity');
+
 final class Admin {
     public static function read(array $u, string $page, array $q): array {
         $p = db();
         if ($page === 'users') {
             return readSections([
                 'users' => fn() => many($p, 'SELECT id, username, full_name, role, shift, active, must_change_password, last_login_at, created_at FROM users ORDER BY active DESC, role, full_name'),
-            ]) + ['roles' => ROLE_LABELS];
+            ]) + ['roles' => ROLE_LABELS, 'limits' => AccountSecurity::limits(), 'counts' => AccountSecurity::counts($p)];
         }
         if ($page === 'audit_log') {
             $from = self::d($q['from'] ?? '') ?? date('Y-m-d', strtotime('-30 days'));
@@ -58,6 +60,8 @@ final class Admin {
             'user_toggle' => self::userToggle($u, $d),
             'user_password' => self::userPassword($u, $d),
             'change_password' => self::changePassword($u, $d),
+            'recovery_code_create' => self::recoveryCodeCreate($u, $d),
+            'role_limits_save' => self::roleLimitsSave($u, $d),
             'setting_save' => self::settingSave($u, $d),
             'setting_reset' => self::settingReset($u, $d),
             'items_save' => self::itemsSave($u, $d),
@@ -83,12 +87,15 @@ final class Admin {
         return transaction(function (PDO $p) use ($u, $id, $role, $shift, $name, $d) {
             if ($id) {
                 if ($id === $u['id']) must($role === 'admin', 'You cannot remove your own Admin role.');
+                $old = one($p, 'SELECT role, shift, active FROM users WHERE id=?', [$id]);
+                if ($old && (int)$old['active'] === 1 && ($old['role'] !== $role || (string)$old['shift'] !== (string)$shift)) AccountSecurity::checkSlot($p, $role, $shift, $id);
                 run($p, 'UPDATE users SET full_name=?, role=?, shift=? WHERE id=?', [$name, $role, $shift, $id]);
                 audit($p, $u['id'], 'Access', 'user ' . $id, 'account updated', "$name / $role");
                 return ['user_id' => $id, 'message' => 'Account updated.'];
             }
             $username = field($d, 'username', 70);
             must((bool)preg_match('/^[a-zA-Z0-9_.-]{3,70}$/', $username), 'Username: 3-70 letters, numbers, dot, dash or underscore.');
+            AccountSecurity::checkSlot($p, $role, $shift); // limit bawat role (User Accounts > Limits per role)
             $pw = field($d, 'password', 255); self::strongPassword($pw);
             must(!one($p, 'SELECT id FROM users WHERE username=?', [$username]), 'Username already exists.', 409);
             $id = insert($p, 'users', ['username' => $username, 'password_hash' => password_hash($pw, PASSWORD_DEFAULT), 'full_name' => $name,
@@ -103,6 +110,10 @@ final class Admin {
         $id = idField($d, 'user_id'); $active = intField($d, 'active', 0) ? 1 : 0;
         must($id !== $u['id'], 'You cannot deactivate your own account.');
         return transaction(function (PDO $p) use ($u, $id, $active) {
+            if ($active) {
+                $t = one($p, 'SELECT role, shift FROM users WHERE id=?', [$id]);
+                if ($t) AccountSecurity::checkSlot($p, $t['role'], $t['shift'], $id);
+            }
             if (!$active) {
                 $t = one($p, 'SELECT role FROM users WHERE id=?', [$id]);
                 if ($t && $t['role'] === 'admin') must((int)one($p, "SELECT COUNT(*) n FROM users WHERE role='admin' AND active=1")['n'] > 1, 'Keep at least one active Admin.');
@@ -118,6 +129,7 @@ final class Admin {
         $id = idField($d, 'user_id'); $pw = field($d, 'password', 255); self::strongPassword($pw);
         return transaction(function (PDO $p) use ($u, $id, $pw) {
             run($p, 'UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?', [password_hash($pw, PASSWORD_DEFAULT), $id]);
+            AccountSecurity::passwordChanged($id); // mala-log out ang lumang sessions ng user at maa-unlock ang account
             audit($p, $u['id'], 'Access', 'user ' . $id, 'password reset by Admin');
             return ['user_id' => $id, 'message' => 'Password reset. The user must change it at next login.'];
         });
@@ -131,8 +143,48 @@ final class Admin {
             $row = one($p, 'SELECT password_hash FROM users WHERE id=?', [$u['id']]);
             must(password_verify($current, $row['password_hash']), 'Current password is wrong.', 403);
             run($p, 'UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?', [password_hash($new, PASSWORD_DEFAULT), $u['id']]);
+            // Mala-log out ang ibang sessions ng account na ito; ang session na ito ay tuloy.
+            $_SESSION['login_at'] = strtotime(AccountSecurity::passwordChanged($u['id']));
             audit($p, $u['id'], 'Access', 'user ' . $u['id'], 'own password changed');
             return ['message' => 'Password changed.'];
+        });
+    }
+
+    /**
+     * Recovery code ng Admin (walang email sa system): ipi-print at itatago. Gamit sa login page kapag
+     * nakalimutan o na-hack ang password. Isang beses lang gumagana; ang bago ay papalit sa luma.
+     */
+    private static function recoveryCodeCreate(array $u, array $d): array {
+        requireRole($u, 'admin');
+        $current = field($d, 'current_password', 255);
+        $row = one(db(), 'SELECT * FROM users WHERE id=?', [$u['id']]);
+        must(array_key_exists('recovery_hash', $row), 'Recovery is not ready yet. Ask IT to import database/migrations/2026-11-04_account_security.sql.', 409);
+        must(password_verify($current, (string)$row['password_hash']), 'Current password is wrong.', 403);
+        $code = AccountSecurity::newCode();
+        run(db(), 'UPDATE users SET recovery_hash=? WHERE id=?', [password_hash(AccountSecurity::normalizeCode($code), PASSWORD_DEFAULT), $u['id']]);
+        audit(db(), $u['id'], 'Access', 'user ' . $u['id'], 'recovery code created', 'the previous code no longer works');
+        return ['code' => $code, 'message' => 'Recovery code created. Print it or write it down and keep it in a safe place. It is shown only once.'];
+    }
+
+    /** Ilan ang pwedeng active na account bawat role (0 = walang limit). Dispatchers: bawat shift. Admin: kahit 1. */
+    private static function roleLimitsSave(array $u, array $d): array {
+        requireRole($u, 'admin');
+        $in = $d['limits'] ?? null;
+        must(is_array($in), 'Invalid limits.');
+        return transaction(function (PDO $p) use ($u, $in) {
+            $changes = [];
+            foreach (AccountSecurity::LIMIT_DEFAULTS as $role => $def) {
+                if (!array_key_exists($role, $in)) continue;
+                $v = trim((string)$in[$role]);
+                must($v !== '' && ctype_digit($v) && (int)$v <= 50, 'Limit of ' . ROLE_LABELS[$role] . ': enter a number from 0 to 50 (0 = no limit).');
+                $n = (int)$v;
+                if ($role === 'admin') must($n >= 1, 'The Admin limit must be at least 1.');
+                run($p, 'INSERT INTO app_settings (setting_key, setting_value, updated_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_by=VALUES(updated_by)',
+                    ['role_limit_' . $role, (string)$n, $u['id']]);
+                $changes[] = ROLE_LABELS[$role] . ' ' . ($n ?: 'no limit');
+            }
+            audit($p, $u['id'], 'Access', 'role limits', 'limits per role saved', implode('; ', $changes));
+            return ['message' => 'Limits saved. They apply to new and re-activated accounts.'];
         });
     }
 

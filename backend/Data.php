@@ -20,6 +20,8 @@ final class Data {
         // Wika ng screen (en o tl). Kapag hindi pa na-import ang migration, English muna (hindi nasisira ang login).
         try { $u['language'] = (string)(one(db(), 'SELECT language FROM users WHERE id=?', [$u['id']])['language'] ?? 'en'); }
         catch (Throwable $e) { $u['language'] = 'en'; }
+        // Admin: may recovery code na ba? (null = hindi pa na-import ang migration ng account security)
+        if ($u['role'] === 'admin') { core('AccountSecurity'); $u['recovery_ready'] = AccountSecurity::hasRecovery($u['id']); }
         return [
             'ok' => true, 'user' => $u, 'csrf' => $_SESSION['csrf'] ?? '',
             'nav' => Access::navFor($u), 'sections' => Access::SECTIONS,

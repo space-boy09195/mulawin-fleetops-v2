@@ -117,7 +117,11 @@ App.page('clients', {
       { name: 'origin', label: 'Origin / pickup point', required: true, value: x.origin, col: 6 }, { name: 'destination', label: 'Destination / delivery point', required: true, value: x.destination, col: 6 },
       { name: 'distance_km', label: 'Total km of the whole trip', type: 'number', step: '0.1', required: true, value: x.distance_km, col: 4, help: 'Billing P&L: KM = 52+67+24' },
       { name: 'toll_fee', label: 'RFID / toll for the whole trip (PHP)', type: 'money', value: x.toll_fee ?? 0, col: 4, help: 'Billing P&L RFID row' },
-      { name: 'notes', label: 'Notes', value: x.notes, col: 4 }, ...(x.id ? [{ name: 'inactive', label: 'Inactive', type: 'checkbox', value: +x.active ? 0 : 1 }] : [])], 'Billing.route_save');
+      { name: 'notes', label: 'Notes', value: x.notes, col: 4 }, ...(x.id ? [{ name: 'inactive', label: 'Inactive', type: 'checkbox', value: +x.active ? 0 : 1 }] : []),
+      { type: 'html', col: 12, html: '<div class="small fw-semibold mt-2 mb-1"><i class="bi bi-map"></i> Route on the map</div><div id="rtMap"></div>' }], 'Billing.route_save', {
+        // Mapa ng ruta habang tina-type (Google Maps embed, walang bayad). Basahin ang km sa "Open in Google Maps".
+        onShow: (w) => UI.mapPreview(w.querySelector('#rtMap'), () => w.querySelector('[name=origin]').value, () => w.querySelector('[name=destination]').value,
+          [w.querySelector('[name=origin]'), w.querySelector('[name=destination]')]) });
     const rateForm = (x = {}) => UI.formModal(x.id ? 'Edit rate' : 'Add client rate', [{ name: 'id', type: 'hidden', value: x.id },
       { name: 'client_id', label: 'Client', type: 'select', required: true, options: UI.opts(d.clients, k => k.name + (k.company_name ? ' / ' + k.company_name : '')), value: x.client_id, col: 6 },
       { name: 'route_id', label: 'Route', type: 'select', options: UI.opts(d.routes, r => `${r.origin} → ${r.destination}`), value: x.route_id, col: 6, placeholder: 'Any route' },

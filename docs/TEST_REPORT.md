@@ -96,6 +96,17 @@ username and puts the cursor on the password.
 | Backend messages seen in a full test run translated to Tagalog | 127 of 127 |
 | `tests/e2e_workflow.py` (payroll period now covers the test day) | PASS, 0 failures |
 
+### Re-test 2026-11-02 (account security, role limits, map)
+
+| Test | Result |
+|---|---|
+| `tests/system_test.py` on a fresh database with the new checks: limits per role and per shift, Admin limit at least 1, recovery code (needs the current password, Admin only, wrong code refused, one-time use, dashes and small letters accepted), old session signed out after the reset, account lock after 5 wrong passwords from different sessions, unlock by Admin reset, map preview on Add route | PASS, 481 checks, 0 failures |
+| Same script again on the same database (accounts reused, limits restored) | PASS, 0 failures |
+| `tests/e2e_workflow.py` | PASS, 0 failures |
+| `scripts/create_user.php` for a second Admin while the limit is 1 | Refused with the limit message (as designed) |
+
+Not tested here: the Google Maps picture itself (the test machine cannot reach google.com); the map address and link are checked.
+
 Notes:
 - `tests/formula_test.php` compares with the Excel defaults, so run it on a database where Formula Settings were not changed.
 - The Apache `.htaccess` rules were not changed in this update (last Apache test: PASS).

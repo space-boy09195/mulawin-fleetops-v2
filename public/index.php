@@ -5,7 +5,7 @@
  * =====================================================================
  *  1. Without ?api=  -> sends the HTML shell (login / app screen).
  *  2. With ?api=...  -> JSON API used by the screen:
- *       whoami, login, logout, me          session
+ *       whoami, login, recover, logout, me session (recover = Admin recovery code)
  *       data&page=xyz                      data for one page
  *       Module.action  (POST JSON)         save something
  *       document_upload / document_download / backup_download
@@ -18,6 +18,8 @@ require_once dirname(__DIR__) . '/backend/Actions.php';
 require_once dirname(__DIR__) . '/backend/Data.php';
 
 if (!isset($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(24));
+core('AccountSecurity');
+const LOCKED_MSG = 'This account is locked for 15 minutes because of too many wrong passwords. Try again later.';
 
 function checkCsrf(?string $given): void {
     must(hash_equals((string)($_SESSION['csrf'] ?? ''), (string)$given), 'Security token expired. Please reload the page.', 403);
@@ -39,18 +41,45 @@ if (isset($_GET['api'])) {
                 $fails = array_values(array_filter($_SESSION['login_failures'] ?? [], fn($t) => $now - (int)$t < 900));
                 must(count($fails) < 5, 'Too many wrong tries. Please wait 15 minutes.', 429);
                 $row = one(db(), 'SELECT * FROM users WHERE username=? AND active=1', [$username]);
+                // Lock ng account (kahit saang computer): 5 maling password = 15 minutong naka-lock.
+                must(!$row || !AccountSecurity::isLocked($row), LOCKED_MSG, 429);
                 if (!$row || !password_verify($password, (string)$row['password_hash'])) {
                     $fails[] = $now; $_SESSION['login_failures'] = $fails;
+                    if ($row && AccountSecurity::failure($row)) fail(LOCKED_MSG, 429);
                     fail('Wrong username or password.' . (count($fails) >= 3 ? ' (' . (5 - count($fails)) . ' tries left)' : ''), 401);
                 }
                 must(in_array($row['role'], allowedRoles(), true), 'Account role is not allowed.', 403);
                 unset($_SESSION['login_failures']);
+                AccountSecurity::success((int)$row['id']);
                 session_regenerate_id(true);
-                $_SESSION['uid'] = (int)$row['id']; $_SESSION['last_seen'] = time();
+                $_SESSION['uid'] = (int)$row['id']; $_SESSION['last_seen'] = time(); $_SESSION['login_at'] = time();
                 $_SESSION['csrf'] = bin2hex(random_bytes(24));
                 run(db(), 'UPDATE users SET last_login_at=NOW() WHERE id=?', [$row['id']]);
                 audit(db(), (int)$row['id'], 'Access', 'user ' . $row['id'], 'signed in');
                 jsonOut(['ok' => true]);
+            case 'recover':
+                // Nakalimutan / na-hack ang Admin password: recovery code (naka-print at nakatago) + bagong password.
+                must($_SERVER['REQUEST_METHOD'] === 'POST', 'POST required.', 405);
+                $d = inputData();
+                checkCsrf($d['csrf'] ?? '');
+                $username = field($d, 'username', 70); $code = AccountSecurity::normalizeCode(field($d, 'code', 40)); $new = field($d, 'new_password', 255);
+                $now = time();
+                $fails = array_values(array_filter($_SESSION['login_failures'] ?? [], fn($t) => $now - (int)$t < 900));
+                must(count($fails) < 5, 'Too many wrong tries. Please wait 15 minutes.', 429);
+                $row = one(db(), "SELECT * FROM users WHERE username=? AND active=1 AND role='admin'", [$username]);
+                must(!$row || array_key_exists('recovery_hash', $row), 'Recovery is not ready yet. Ask IT to import database/migrations/2026-11-04_account_security.sql.', 409);
+                must(!$row || !AccountSecurity::isLocked($row), LOCKED_MSG, 429);
+                if (!$row || empty($row['recovery_hash']) || !password_verify($code, (string)$row['recovery_hash'])) {
+                    $fails[] = $now; $_SESSION['login_failures'] = $fails;
+                    if ($row && AccountSecurity::failure($row)) fail(LOCKED_MSG, 429);
+                    fail('Wrong Admin username or recovery code.', 401);
+                }
+                must(strlen($new) >= PASSWORD_MIN_LENGTH && preg_match('/[A-Za-z]/', $new) && preg_match('/\d/', $new), 'Password must have at least ' . PASSWORD_MIN_LENGTH . ' characters with letters and numbers.');
+                run(db(), 'UPDATE users SET password_hash=?, must_change_password=0, recovery_hash=NULL WHERE id=?', [password_hash($new, PASSWORD_DEFAULT), $row['id']]);
+                AccountSecurity::passwordChanged((int)$row['id']); // lahat ng lumang session ng account ay mala-log out
+                audit(db(), (int)$row['id'], 'Access', 'user ' . $row['id'], 'password reset with recovery code', 'old sessions signed out; recovery code used up');
+                unset($_SESSION['login_failures']);
+                jsonOut(['ok' => true, 'data' => ['message' => 'Password reset. Log in with the new password, then make a new recovery code (the old one no longer works).']]);
             case 'logout':
                 must($_SERVER['REQUEST_METHOD'] === 'POST', 'POST required.', 405);
                 checkCsrf($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');

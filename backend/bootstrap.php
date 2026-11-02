@@ -256,6 +256,9 @@ function currentUser(): array {
     $_SESSION['last_seen'] = time();
     $u = one(db(), 'SELECT id, username, full_name, role, shift, must_change_password FROM users WHERE id=? AND active=1', [$id]);
     if (!$u) { session_unset(); throw new BusinessRuleException('Session is no longer valid.', 401); }
+    // Napalitan ang password pagkatapos mag-login ang session na ito (halimbawa ni-reset ng Admin o gamit ang recovery code).
+    core('AccountSecurity');
+    if (AccountSecurity::sessionOutdated((int)$u['id'])) { session_unset(); throw new BusinessRuleException('Your password was changed. Please log in again.', 401); }
     must(in_array($u['role'], allowedRoles(), true), 'Account role is not allowed.', 403);
     $u['id'] = (int)$u['id'];
     $u['role_label'] = ROLE_LABELS[$u['role']];

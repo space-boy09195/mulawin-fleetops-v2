@@ -1,261 +1,377 @@
 <?php
 /*
  * =====================================================================
- *  backend/Modules/Maintenance/Purchasing.php  —  PURCHASING AND INVENTORY
+ *  backend/Modules/Maintenance/Purchasing.php  —  PARTS & PURCHASING
  * =====================================================================
- *  FMS PDF II.K and p.17 (Maintenance module A and B).
+ *  Objective 2.4  truck-parts requests, inventory check, stock release, inventory update
+ *  Objective 2.5  purchase requests, purchase order approval, receiving of parts
+ *  Objective 2.6  inventory monitoring: stock-in, stock-out, partially received purchases
  *
- *  A. STOCK-OUT  Motorpool requests parts -> Purchasing checks stock ->
- *     if available, Purchasing releases and updates the system.
- *  B. STOCK-IN   Purchasing sends a purchase request for approval:
- *       amount > limit  -> Admin approves
- *       amount <= limit -> Finance approves
- *     Then the system checks the Finance budget. If it does not fit, the
- *     request is rejected by the system as "Insufficient Budget".
- *     Approved -> purchase order -> receipt (stock-in, AP, parts expense).
+ *  PDF #12 Maintenance Module:
+ *   A. Stock-out: Motorpool Custodian requests parts (REQUEST FORM) -> Purchasing
+ *      Officer checks stock -> releases and the system updates the inventory.
+ *   B. Stock-in: Purchasing Officer makes a Purchase Order Request (parts, qty,
+ *      unit price; system computes the total) -> automatic approval routing:
+ *      PHP 10,000 and below = Finance, above = Admin -> approver approves ->
+ *      AUTOMATIC BUDGET VALIDATION (reserve the amount in the same locked step, so
+ *      two POs can never use the same remaining money) -> approved PO document with
+ *      the approver's e-signature -> Finance sees it as Pending Payment ->
+ *      receiving (partial allowed: "Partially Received") adds stock -> Finance pays.
  * =====================================================================
  */
 declare(strict_types=1);
-core('Settings');
 core('Notify');
+core('Files');
+core('Settings');
 
 final class Purchasing {
     public static function read(array $u, string $page, array $q): array {
         $p = db();
-        if ($page === 'inventory') {
-            $data = readSections([
-                'parts' => fn() => many($p, 'SELECT pa.*, s.name AS supplier, (pa.reorder_level > 0 AND pa.quantity_on_hand <= pa.reorder_level) AS low_stock
-                    FROM parts pa LEFT JOIN suppliers s ON s.id=pa.default_supplier_id ORDER BY pa.active DESC, pa.description'),
-                'requests' => fn() => many($p, "SELECT pr.*, pa.part_number, pa.description, pa.unit, pa.quantity_on_hand, v.plate_number, m.job_number,
-                        us.full_name AS requested_by_name
-                    FROM part_requests pr JOIN parts pa ON pa.id=pr.part_id JOIN vehicles v ON v.id=pr.vehicle_id
-                    LEFT JOIN maintenance_jobs m ON m.id=pr.maintenance_job_id JOIN users us ON us.id=pr.requested_by
-                    ORDER BY FIELD(pr.status,'Requested','Not Available','Issued','Cancelled'), pr.id DESC LIMIT 400"),
-                'movements' => fn() => hasRole($u, 'motorpool') ? [] : many($p, 'SELECT sm.*, pa.part_number, pa.description, us.full_name AS actor, v.plate_number
-                    FROM stock_movements sm JOIN parts pa ON pa.id=sm.part_id JOIN users us ON us.id=sm.actor_id LEFT JOIN vehicles v ON v.id=sm.vehicle_id
-                    ORDER BY sm.id DESC LIMIT 500'),
-                'suppliers' => fn() => many($p, 'SELECT id, name FROM suppliers WHERE active=1 ORDER BY name'),
-                'vehicles' => fn() => many($p, 'SELECT id, plate_number FROM vehicles WHERE active=1 ORDER BY plate_number'),
-                'jobs' => fn() => many($p, "SELECT id, job_number, vehicle_id FROM maintenance_jobs WHERE status NOT IN ('Completed','Cancelled') ORDER BY id DESC"),
-            ]);
-            $data['can'] = ['manage' => hasRole($u, 'purchasing'), 'request' => hasRole($u, 'motorpool')];
-            return $data;
-        }
         $data = readSections([
-            'requests' => fn() => many($p, "SELECT r.*, pa.part_number, pa.description, pa.unit, s.name AS supplier, us.full_name AS requested_by_name,
-                    ud.full_name AS decided_by_name, po.po_number, po.status AS po_status
-                FROM purchase_requests r JOIN parts pa ON pa.id=r.part_id LEFT JOIN suppliers s ON s.id=r.supplier_id
-                JOIN users us ON us.id=r.requested_by LEFT JOIN users ud ON ud.id=r.decided_by LEFT JOIN purchase_orders po ON po.purchase_request_id=r.id
-                ORDER BY FIELD(r.status,'Pending Approval','Approved','Ordered','Received','Rejected','Rejected - Insufficient Budget'), r.id DESC LIMIT 500"),
-            'orders' => fn() => many($p, 'SELECT po.*, r.pr_number, r.quantity, r.amount, r.unit_cost, pa.part_number, pa.description, s.name AS supplier
-                FROM purchase_orders po JOIN purchase_requests r ON r.id=po.purchase_request_id JOIN parts pa ON pa.id=r.part_id
-                LEFT JOIN suppliers s ON s.id=po.supplier_id ORDER BY po.id DESC LIMIT 500'),
+            'parts' => fn() => many($p, "SELECT pt.*, ROUND(pt.quantity_on_hand*pt.unit_cost,2) AS stock_value,
+                    (pt.reorder_level>0 AND pt.quantity_on_hand<=pt.reorder_level) AS low_stock FROM parts pt ORDER BY pt.active DESC, pt.part_number"),
             'suppliers' => fn() => many($p, 'SELECT * FROM suppliers ORDER BY active DESC, name'),
-            'parts' => fn() => many($p, 'SELECT id, part_number, description, unit, unit_cost, default_supplier_id FROM parts WHERE active=1 ORDER BY description'),
-            'notAvailable' => fn() => many($p, "SELECT pr.id, pr.requested_qty, pa.id AS part_id, pa.description, v.plate_number FROM part_requests pr JOIN parts pa ON pa.id=pr.part_id
-                JOIN vehicles v ON v.id=pr.vehicle_id WHERE pr.status='Not Available' AND NOT EXISTS (SELECT 1 FROM purchase_requests x WHERE x.part_request_id=pr.id AND x.status NOT LIKE 'Rejected%')"),
-            'budget' => fn() => one($p, "SELECT * FROM budgets WHERE category='Purchasing' AND status='Active' ORDER BY id DESC LIMIT 1") ?? [],
+            'requests' => fn() => many($p, "SELECT r.*, v.plate_number, m.job_ref, ru.full_name AS requested_by_name, pu.full_name AS processed_by_name,
+                    (SELECT GROUP_CONCAT(CONCAT(pt.part_number, ' x', l.quantity, IF(l.released_qty>0, CONCAT(' (released ', l.released_qty, ')'), '')) SEPARATOR '; ')
+                       FROM part_request_lines l JOIN parts pt ON pt.id=l.part_id WHERE l.part_request_id=r.id) AS items
+                FROM part_requests r JOIN vehicles v ON v.id=r.vehicle_id LEFT JOIN maintenance_jobs m ON m.id=r.maintenance_job_id
+                JOIN users ru ON ru.id=r.requested_by LEFT JOIN users pu ON pu.id=r.processed_by
+                ORDER BY FIELD(r.status,'Requested','Partially Released','Not Available','Released','Cancelled'), r.id DESC LIMIT 500"),
+            'orders' => fn() => many($p, "SELECT o.*, s.name AS supplier, ru.full_name AS requested_by_name, du.full_name AS decided_by_name,
+                    (SELECT COALESCE(SUM(l.received_qty*l.unit_price),0) FROM purchase_order_lines l WHERE l.purchase_order_id=o.id) AS received_value,
+                    (SELECT GROUP_CONCAT(CONCAT(pt.part_number, ' ', l.received_qty, '/', l.quantity) SEPARATOR '; ') FROM purchase_order_lines l JOIN parts pt ON pt.id=l.part_id WHERE l.purchase_order_id=o.id) AS items
+                FROM purchase_orders o JOIN suppliers s ON s.id=o.supplier_id JOIN users ru ON ru.id=o.requested_by LEFT JOIN users du ON du.id=o.decided_by
+                ORDER BY FIELD(o.status,'Pending Approval','Approved','Partially Received','Received','Closed','Rejected','Rejected - Insufficient Budget'), o.id DESC LIMIT 500"),
+            'movements' => fn() => many($p, "SELECT sm.*, pt.part_number, pt.description, v.plate_number, u.full_name AS actor FROM stock_movements sm JOIN parts pt ON pt.id=sm.part_id
+                LEFT JOIN vehicles v ON v.id=sm.vehicle_id JOIN users u ON u.id=sm.actor_id ORDER BY sm.id DESC LIMIT 500"),
+            'trucks' => fn() => many($p, 'SELECT id, plate_number, truck_number FROM vehicles WHERE active=1 ORDER BY plate_number'),
+            'openJobs' => fn() => many($p, "SELECT m.id, m.job_ref, m.vehicle_id, m.problem FROM maintenance_jobs m WHERE m.status IN ('Reported','Ongoing') ORDER BY m.id DESC"),
+            'budget' => fn() => one($p, "SELECT *, amount-reserved_amount-spent_amount AS available FROM budgets WHERE status='Active' AND category='Purchasing' ORDER BY id DESC LIMIT 1") ?? [],
         ]);
         $data['threshold'] = Settings::value('purchase_approval_threshold');
-        $data['can'] = ['manage' => hasRole($u, 'purchasing'), 'approve_finance' => hasRole($u, 'finance'), 'approve_admin' => hasRole($u, 'admin')];
+        $data['can'] = [
+            'request' => hasRole($u, 'motorpool'), 'stock' => hasRole($u, 'purchasing'),
+            'approveSmall' => hasRole($u, 'finance'), 'approveBig' => hasRole($u, 'admin'),
+        ];
         return $data;
     }
 
     public static function action(array $u, string $action, array $d): array {
-        if ($action === 'decide') return self::decide($u, $d);
-        requireRole($u, 'purchasing');
         return match ($action) {
-            'supplier_save' => self::supplierSave($u, $d),
             'part_save' => self::partSave($u, $d),
+            'supplier_save' => self::supplierSave($u, $d),
             'adjust' => self::adjust($u, $d),
-            'issue' => self::issue($u, $d),
-            'not_available' => self::notAvailable($u, $d),
-            'pr_create' => self::prCreate($u, $d),
+            'request_create' => self::requestCreate($u, $d),
+            'request_process' => self::requestProcess($u, $d),
+            'request_cancel' => self::requestCancel($u, $d),
             'po_create' => self::poCreate($u, $d),
-            'receive' => self::receive($u, $d),
-            default => throw new BusinessRuleException('Unknown purchasing action.', 404),
+            'po_decide' => self::poDecide($u, $d),
+            'po_receive' => self::poReceive($u, $d),
+            'po_close' => self::poClose($u, $d),
+            'po_details' => self::poDetails($u, $d),
+            'request_details' => self::requestDetails($u, $d),
+            default => throw new BusinessRuleException('Unknown action.', 404),
         };
     }
 
-    private static function supplierSave(array $u, array $d): array {
-        $id = optId($d, 'id');
-        $row = ['name' => field($d, 'name', 150), 'contact_person' => optField($d, 'contact_person', 120), 'contact_number' => optField($d, 'contact_number', 60),
-                'email' => optField($d, 'email', 120), 'address' => optField($d, 'address', 255), 'notes' => optField($d, 'notes', 255),
-                'active' => empty($d['inactive']) ? 1 : 0];
-        return transaction(function (PDO $p) use ($u, $id, $row) {
-            must(!one($p, 'SELECT id FROM suppliers WHERE name=? AND id<>?', [$row['name'], $id ?? 0]), 'Supplier name already exists.', 409);
-            if ($id) { run($p, 'UPDATE suppliers SET ' . implode(',', array_map(fn($c) => "$c=?", array_keys($row))) . ' WHERE id=?', array_merge(array_values($row), [$id])); }
-            else { $id = insert($p, 'suppliers', $row); }
-            audit($p, $u['id'], 'Purchasing', 'supplier ' . $id, 'supplier saved', $row['name']);
-            return ['supplier_id' => $id];
-        });
+    /** Records a stock change and keeps quantity_on_hand >= 0 (checked again by the database). */
+    private static function move(PDO $p, array $u, int $partId, string $type, int $delta, float $cost, string $reason, ?string $refType, ?int $refId, ?int $vehicleId = null, ?int $jobId = null): void {
+        $pt = one($p, 'SELECT * FROM parts WHERE id=? FOR UPDATE', [$partId]);
+        must((bool)$pt, 'Part not found.', 404);
+        must((int)$pt['quantity_on_hand'] + $delta >= 0, 'Not enough stock of ' . $pt['part_number'] . ' (on hand: ' . $pt['quantity_on_hand'] . ').', 409);
+        run($p, 'UPDATE parts SET quantity_on_hand=quantity_on_hand+? WHERE id=?', [$delta, $partId]);
+        insert($p, 'stock_movements', ['part_id' => $partId, 'movement_type' => $type, 'quantity_delta' => $delta, 'unit_cost' => number_format($cost, 2, '.', ''),
+            'reason' => cut($reason, 150), 'reference_type' => $refType, 'reference_id' => $refId, 'vehicle_id' => $vehicleId, 'maintenance_job_id' => $jobId, 'actor_id' => $u['id']]);
     }
 
+    // ---------------------------------------------------------------- parts and suppliers
     private static function partSave(array $u, array $d): array {
+        requireRole($u, 'purchasing');
         $id = optId($d, 'id');
-        $row = ['part_number' => field($d, 'part_number', 70), 'description' => field($d, 'description', 200), 'category' => optField($d, 'category', 80),
+        $row = ['part_number' => strtoupper(field($d, 'part_number', 70)), 'description' => field($d, 'description', 200), 'category' => optField($d, 'category', 80),
                 'unit' => field($d, 'unit', 20), 'unit_cost' => moneyField($d, 'unit_cost', true), 'reorder_level' => intField($d, 'reorder_level', 0),
-                'warranty_info' => optField($d, 'warranty_info', 150), 'default_supplier_id' => optId($d, 'default_supplier_id'),
-                'active' => empty($d['inactive']) ? 1 : 0];
+                'warranty_info' => optField($d, 'warranty_info', 150)];
+        $opening = $id ? 0 : (int)(intField($d, 'opening_qty', 0, false) ?? 0);
+        return transaction(function (PDO $p) use ($u, $id, $row, $opening) {
+            must(!one($p, 'SELECT id FROM parts WHERE part_number=? AND id<>?', [$row['part_number'], $id ?? 0]), 'Part number ' . $row['part_number'] . ' already exists.', 409);
+            if ($id) {
+                must((bool)one($p, 'SELECT id FROM parts WHERE id=? FOR UPDATE', [$id]), 'Part not found.', 404);
+                $cols = implode(',', array_map(fn($c) => "$c=?", array_keys($row)));
+                run($p, "UPDATE parts SET $cols WHERE id=?", array_merge(array_values($row), [$id]));
+                audit($p, $u['id'], 'Inventory', 'part ' . $id, 'part updated', $row['part_number']);
+                return ['message' => 'Part updated.'];
+            }
+            $id = insert($p, 'parts', $row);
+            if ($opening > 0) self::move($p, $u, $id, 'Adjustment', $opening, (float)$row['unit_cost'], 'Opening balance', 'adjustment', null);
+            audit($p, $u['id'], 'Inventory', 'part ' . $id, 'part added', $row['part_number'] . ($opening ? " (opening $opening)" : ''));
+            return ['message' => 'Part ' . $row['part_number'] . ' added.'];
+        });
+    }
+
+    private static function supplierSave(array $u, array $d): array {
+        requireRole($u, 'purchasing');
+        $id = optId($d, 'id');
+        $row = ['name' => strtoupper(field($d, 'name', 150)), 'contact_person' => optField($d, 'contact_person', 120), 'contact_number' => optField($d, 'contact_number', 60),
+                'email' => optField($d, 'email', 120), 'address' => optField($d, 'address', 255), 'active' => isset($d['active']) ? (!empty($d['active']) ? 1 : 0) : 1];
+        if ($row['email']) must((bool)filter_var($row['email'], FILTER_VALIDATE_EMAIL), 'Enter a valid email.');
         return transaction(function (PDO $p) use ($u, $id, $row) {
-            must(!one($p, 'SELECT id FROM parts WHERE part_number=? AND id<>?', [$row['part_number'], $id ?? 0]), 'Part number already exists.', 409);
-            if ($id) { run($p, 'UPDATE parts SET ' . implode(',', array_map(fn($c) => "$c=?", array_keys($row))) . ' WHERE id=?', array_merge(array_values($row), [$id])); }
-            else { $id = insert($p, 'parts', $row); } // new parts start with 0 stock; use Adjustment for the verified opening count
-            audit($p, $u['id'], 'Inventory', 'part ' . $id, 'part saved', $row['part_number'] . ' ' . $row['description']);
-            return ['part_id' => $id];
+            must(!one($p, 'SELECT id FROM suppliers WHERE name=? AND id<>?', [$row['name'], $id ?? 0]), 'Supplier ' . $row['name'] . ' already exists.', 409);
+            if ($id) {
+                $cols = implode(',', array_map(fn($c) => "$c=?", array_keys($row)));
+                run($p, "UPDATE suppliers SET $cols WHERE id=?", array_merge(array_values($row), [$id]));
+            } else $id = insert($p, 'suppliers', $row);
+            audit($p, $u['id'], 'Purchasing', 'supplier ' . $id, 'supplier saved', $row['name']);
+            return ['message' => 'Supplier saved.'];
         });
     }
 
-    /** Inventory adjustment (physical count, opening balance, damage). */
+    /** Inventory adjustment (count correction, damaged stock ...). */
     private static function adjust(array $u, array $d): array {
-        $part = idField($d, 'part_id');
-        $qty = filter_var($d['quantity'] ?? null, FILTER_VALIDATE_INT);
-        must($qty !== false && $qty !== 0, 'Enter a quantity to add (positive) or remove (negative).');
+        requireRole($u, 'purchasing');
+        $partId = idField($d, 'part_id');
+        $delta = filter_var($d['quantity_delta'] ?? null, FILTER_VALIDATE_INT);
+        must($delta !== false && $delta !== 0, 'Enter the quantity to add (e.g. 5) or remove (e.g. -2).');
         $reason = field($d, 'reason', 150);
-        return transaction(function (PDO $p) use ($u, $part, $qty, $reason) {
-            $pa = one($p, 'SELECT * FROM parts WHERE id=? FOR UPDATE', [$part]);
-            must((bool)$pa, 'Part not found.', 404);
-            must((int)$pa['quantity_on_hand'] + $qty >= 0, 'Stock cannot go below zero.', 409);
-            run($p, 'UPDATE parts SET quantity_on_hand=quantity_on_hand+? WHERE id=?', [$qty, $part]);
-            insert($p, 'stock_movements', ['part_id' => $part, 'movement_type' => 'Adjustment', 'quantity_delta' => $qty, 'unit_cost' => $pa['unit_cost'],
-                'reason' => $reason, 'actor_id' => $u['id']]);
-            audit($p, $u['id'], 'Inventory', $pa['part_number'], 'inventory adjusted', "$qty ($reason)");
-            return ['part_id' => $part];
+        return transaction(function (PDO $p) use ($u, $partId, $delta, $reason) {
+            $pt = one($p, 'SELECT * FROM parts WHERE id=?', [$partId]);
+            must((bool)$pt, 'Part not found.', 404);
+            self::move($p, $u, $partId, 'Adjustment', (int)$delta, (float)$pt['unit_cost'], $reason, 'adjustment', null);
+            audit($p, $u['id'], 'Inventory', 'part ' . $partId, 'inventory adjusted', $pt['part_number'] . ' ' . ($delta > 0 ? '+' : '') . $delta . ': ' . $reason);
+            return ['message' => 'Inventory adjusted.'];
         });
     }
 
-    /** Release parts to Motorpool (stock-out). */
-    private static function issue(array $u, array $d): array {
+    // ---------------------------------------------------------------- parts requests (stock-out)
+    private static function lines(array $d, string $qtyKey = 'quantity'): array {
+        $out = [];
+        foreach ((array)($d['lines'] ?? []) as $l) {
+            if (!is_array($l) || empty($l['part_id'])) continue;
+            $pid = idField($l, 'part_id');
+            must(!isset($out[$pid]), 'The same part was entered twice; combine the quantity in one line.');
+            $out[$pid] = ['part_id' => $pid, 'quantity' => intField($l, $qtyKey, 1)] + (isset($l['unit_price']) ? ['unit_price' => moneyField($l, 'unit_price')] : []);
+        }
+        must((bool)$out, 'Add at least one item.');
+        must(count($out) <= 30, 'At most 30 items per form.');
+        return array_values($out);
+    }
+
+    private static function requestCreate(array $u, array $d): array {
+        requireRole($u, 'motorpool');
+        $vid = idField($d, 'vehicle_id'); $jobId = optId($d, 'maintenance_job_id');
+        $purpose = field($d, 'purpose', 255);
+        $lines = self::lines($d);
+        return transaction(function (PDO $p) use ($u, $vid, $jobId, $purpose, $lines) {
+            $v = one($p, 'SELECT plate_number FROM vehicles WHERE id=? AND active=1', [$vid]);
+            must((bool)$v, 'Choose an active truck.');
+            if ($jobId) must((bool)one($p, "SELECT id FROM maintenance_jobs WHERE id=? AND vehicle_id=? AND status IN ('Reported','Ongoing')", [$jobId, $vid]), 'The maintenance record does not belong to this truck or is already closed.');
+            foreach ($lines as $l) must((bool)one($p, 'SELECT id FROM parts WHERE id=? AND active=1', [$l['part_id']]), 'Unknown part in the list.');
+            $rid = insert($p, 'part_requests', ['request_ref' => 'TMP-' . bin2hex(random_bytes(6)), 'vehicle_id' => $vid, 'maintenance_job_id' => $jobId,
+                'purpose' => $purpose, 'status' => 'Requested', 'requested_by' => $u['id']]);
+            $ref = refNumber('RF', $rid);
+            run($p, 'UPDATE part_requests SET request_ref=? WHERE id=?', [$ref, $rid]);
+            foreach ($lines as $l) insert($p, 'part_request_lines', ['part_request_id' => $rid, 'part_id' => $l['part_id'], 'quantity' => $l['quantity']]);
+            audit($p, $u['id'], 'Inventory', 'request ' . $rid, 'parts request submitted', $ref . ' for ' . $v['plate_number']);
+            Notify::roles($p, ['purchasing'], 'Parts request', "$ref: parts requested for " . $v['plate_number'] . '. Check the stock and release.', 'purchasing');
+            return ['message' => "Request $ref sent to the Purchasing Officer."];
+        });
+    }
+
+    /** Purchasing checks the stock and releases what is available (stock-out). */
+    private static function requestProcess(array $u, array $d): array {
+        requireRole($u, 'purchasing');
+        $id = idField($d, 'request_id');
+        $notAvailable = !empty($d['not_available']);
+        $notes = optField($d, 'notes', 255);
+        return transaction(function (PDO $p) use ($u, $d, $id, $notAvailable, $notes) {
+            $r = one($p, 'SELECT * FROM part_requests WHERE id=? FOR UPDATE', [$id]);
+            must((bool)$r, 'Request not found.', 404);
+            must(in_array($r['status'], ['Requested', 'Partially Released', 'Not Available'], true), 'This request is ' . $r['status'] . '.', 409);
+            $lines = many($p, 'SELECT l.*, pt.part_number, pt.unit_cost AS cost FROM part_request_lines l JOIN parts pt ON pt.id=l.part_id WHERE l.part_request_id=? FOR UPDATE', [$id]);
+            $released = 0;
+            if (!$notAvailable) {
+                $want = [];
+                foreach ((array)($d['release'] ?? []) as $x) if (is_array($x) && !empty($x['line_id'])) $want[(int)$x['line_id']] = (int)($x['qty'] ?? 0);
+                foreach ($lines as $l) {
+                    $q = $want[(int)$l['id']] ?? 0;
+                    if ($q <= 0) continue;
+                    must($q <= (int)$l['quantity'] - (int)$l['released_qty'], 'Cannot release more than requested for ' . $l['part_number'] . '.');
+                    self::move($p, $u, (int)$l['part_id'], 'Stock Out', -$q, (float)$l['cost'], 'Released for ' . $r['request_ref'], 'part_request', $id, (int)$r['vehicle_id'], $r['maintenance_job_id'] ? (int)$r['maintenance_job_id'] : null);
+                    run($p, 'UPDATE part_request_lines SET released_qty=released_qty+?, unit_cost=? WHERE id=?', [$q, $l['cost'], $l['id']]);
+                    $released += $q;
+                }
+                must($released > 0, 'Enter the quantity to release, or mark the request as Not Available.');
+            }
+            $left = (int)one($p, 'SELECT COALESCE(SUM(quantity-released_qty),0) AS n FROM part_request_lines WHERE part_request_id=?', [$id])['n'];
+            $any = (int)one($p, 'SELECT COALESCE(SUM(released_qty),0) AS n FROM part_request_lines WHERE part_request_id=?', [$id])['n'];
+            $status = $left === 0 ? 'Released' : ($any > 0 ? 'Partially Released' : 'Not Available');
+            run($p, 'UPDATE part_requests SET status=?, processed_by=?, processed_at=NOW(), notes=COALESCE(?, notes) WHERE id=?', [$status, $u['id'], $notes, $id]);
+            audit($p, $u['id'], 'Inventory', 'request ' . $id, 'parts request processed', $r['request_ref'] . ' -> ' . $status);
+            Notify::user($p, (int)$r['requested_by'], 'Parts request', $r['request_ref'] . ' is ' . $status . '.', 'purchasing');
+            return ['message' => 'Request is now ' . $status . '.' . ($status !== 'Released' ? ' Create a purchase order for the missing items if needed.' : '')];
+        });
+    }
+
+    private static function requestCancel(array $u, array $d): array {
+        requireRole($u, 'motorpool');
         $id = idField($d, 'request_id');
         return transaction(function (PDO $p) use ($u, $id) {
             $r = one($p, 'SELECT * FROM part_requests WHERE id=? FOR UPDATE', [$id]);
-            must($r && in_array($r['status'], ['Requested', 'Not Available'], true), 'Request is not pending.', 409);
-            $pa = one($p, 'SELECT * FROM parts WHERE id=? FOR UPDATE', [$r['part_id']]);
-            must((int)$pa['quantity_on_hand'] >= (int)$r['requested_qty'], 'Not enough stock (' . $pa['quantity_on_hand'] . ' on hand). Mark it Not Available and create a purchase request.', 409);
-            run($p, 'UPDATE parts SET quantity_on_hand=quantity_on_hand-? WHERE id=?', [$r['requested_qty'], $r['part_id']]);
-            run($p, "UPDATE part_requests SET status='Issued', issued_by=?, issued_at=NOW() WHERE id=?", [$u['id'], $id]);
-            insert($p, 'stock_movements', ['part_id' => $r['part_id'], 'movement_type' => 'Stock Out', 'quantity_delta' => -(int)$r['requested_qty'],
-                'unit_cost' => $pa['unit_cost'], 'reason' => 'Issued to Motorpool', 'reference_type' => 'part_request', 'reference_id' => $id,
-                'vehicle_id' => $r['vehicle_id'], 'actor_id' => $u['id']]);
-            audit($p, $u['id'], 'Inventory', 'part request ' . $id, 'parts issued', $pa['part_number'] . ' x' . $r['requested_qty']);
-            Notify::user($p, (int)$r['requested_by'], 'Parts issued', $r['requested_qty'] . ' ' . $pa['unit'] . ' of ' . $pa['description'] . ' released.', 'maintenance');
-            if ($r['maintenance_job_id']) run($p, "UPDATE maintenance_jobs SET status='In Progress' WHERE id=? AND status='Waiting for Parts'", [$r['maintenance_job_id']]);
-            return ['request_id' => $id, 'message' => 'Parts released and stock updated.'];
+            must($r && $r['status'] === 'Requested', 'Only a request that is still Requested can be cancelled.', 409);
+            run($p, "UPDATE part_requests SET status='Cancelled' WHERE id=?", [$id]);
+            audit($p, $u['id'], 'Inventory', 'request ' . $id, 'parts request cancelled', $r['request_ref']);
+            return ['message' => 'Request cancelled.'];
         });
     }
 
-    private static function notAvailable(array $u, array $d): array {
-        $id = idField($d, 'request_id');
-        return transaction(function (PDO $p) use ($u, $id) {
-            $r = one($p, 'SELECT pr.*, pa.description FROM part_requests pr JOIN parts pa ON pa.id=pr.part_id WHERE pr.id=? FOR UPDATE', [$id]);
-            must($r && $r['status'] === 'Requested', 'Request is not pending.', 409);
-            run($p, "UPDATE part_requests SET status='Not Available' WHERE id=?", [$id]);
-            audit($p, $u['id'], 'Inventory', 'part request ' . $id, 'marked not available');
-            Notify::user($p, (int)$r['requested_by'], 'Parts not available', $r['description'] . ' is out of stock. Purchasing will request a purchase.', 'maintenance');
-            return ['request_id' => $id, 'message' => 'Marked Not Available. Create a purchase request in Purchasing.'];
-        });
-    }
-
-    /** Purchase request; approver depends on the PHP limit (PDF p.17). */
-    private static function prCreate(array $u, array $d): array {
-        $part = idField($d, 'part_id'); $qty = intField($d, 'quantity', 1); $cost = moneyField($d, 'unit_cost');
-        $supplier = optId($d, 'supplier_id'); $reason = optField($d, 'reason', 255); $link = optId($d, 'part_request_id');
-        return transaction(function (PDO $p) use ($u, $part, $qty, $cost, $supplier, $reason, $link) {
-            $pa = one($p, 'SELECT * FROM parts WHERE id=?', [$part]);
-            must((bool)$pa, 'Part not found.');
-            $amount = round($qty * (float)$cost, 2);
-            $approver = $amount > Settings::value('purchase_approval_threshold') ? 'admin' : 'finance';
-            $id = insert($p, 'purchase_requests', ['part_id' => $part, 'part_request_id' => $link, 'supplier_id' => $supplier, 'quantity' => $qty,
-                'unit_cost' => $cost, 'amount' => number_format($amount, 2, '.', ''), 'reason' => $reason, 'approver_role' => $approver, 'requested_by' => $u['id']]);
-            run($p, 'UPDATE purchase_requests SET pr_number=? WHERE id=?', [refNumber('PR', $id), $id]);
-            audit($p, $u['id'], 'Purchasing', refNumber('PR', $id), 'purchase request created', $pa['description'] . ' x' . $qty . ' = PHP ' . number_format($amount, 2) . ' -> ' . ROLE_LABELS[$approver]);
-            Notify::roles($p, [$approver], 'Purchase approval', refNumber('PR', $id) . ': ' . $pa['description'] . ' PHP ' . number_format($amount, 2) . ' needs approval.', 'purchasing');
-            return ['purchase_id' => $id, 'message' => 'Purchase request sent to ' . ROLE_LABELS[$approver] . '.'];
-        });
-    }
-
-    /** Admin (> limit) or Finance (<= limit) decides; then the budget is checked. */
-    private static function decide(array $u, array $d): array {
-        requireRole($u, 'admin', 'finance');
-        $id = idField($d, 'purchase_id');
-        $decision = choiceField($d, 'decision', ['approve', 'reject']);
-        $notes = optField($d, 'notes', 255);
-        return transaction(function (PDO $p) use ($u, $id, $decision, $notes) {
-            $r = one($p, 'SELECT * FROM purchase_requests WHERE id=? FOR UPDATE', [$id]);
-            must($r && $r['status'] === 'Pending Approval', 'Request is not pending.', 409);
-            must($u['role'] === $r['approver_role'], 'This amount must be approved by ' . ROLE_LABELS[$r['approver_role']] . '.', 403);
-            if ($decision === 'reject') {
-                must($notes !== null, 'Please give a reason.');
-                run($p, "UPDATE purchase_requests SET status='Rejected', decided_by=?, decided_at=NOW(), decision_notes=? WHERE id=?", [$u['id'], $notes, $id]);
-                audit($p, $u['id'], 'Purchasing', $r['pr_number'], 'purchase request rejected', $notes);
-                Notify::user($p, (int)$r['requested_by'], 'Purchase rejected', $r['pr_number'] . ' was rejected: ' . $notes, 'purchasing');
-                return ['purchase_id' => $id, 'result' => 'Rejected', 'message' => 'Rejected.'];
-            }
-            // Budget check (PDF p.17). TODO C05: budget period / allocation rules are not in the PDF.
-            $b = one($p, "SELECT * FROM budgets WHERE category='Purchasing' AND status='Active' ORDER BY id DESC LIMIT 1 FOR UPDATE");
-            must((bool)$b, 'Finance has not set an active Purchasing budget yet. Set it in Finance > Budgets first.', 409);
-            $remaining = round((float)$b['budget_amount'] - (float)$b['used_amount'], 2);
-            if ($remaining < (float)$r['amount']) {
-                run($p, "UPDATE purchase_requests SET status='Rejected - Insufficient Budget', decided_by=?, decided_at=NOW(), decision_notes=?, budget_id=? WHERE id=?",
-                    [$u['id'], 'System: remaining budget PHP ' . number_format($remaining, 2), $b['id'], $id]);
-                audit($p, null, 'Purchasing', $r['pr_number'], 'rejected by system: insufficient budget', 'Amount ' . $r['amount'] . ', remaining ' . $remaining);
-                Notify::user($p, (int)$r['requested_by'], 'Purchase rejected', $r['pr_number'] . ' was rejected by the system: insufficient budget.', 'purchasing');
-                return ['purchase_id' => $id, 'result' => 'Rejected - Insufficient Budget', 'warning' => 'Insufficient budget: remaining PHP ' . number_format($remaining, 2) . '. The system rejected the request.'];
-            }
-            run($p, "UPDATE purchase_requests SET status='Approved', decided_by=?, decided_at=NOW(), decision_notes=?, budget_id=? WHERE id=?", [$u['id'], $notes, $b['id'], $id]);
-            run($p, 'UPDATE budgets SET used_amount=used_amount+? WHERE id=?', [$r['amount'], $b['id']]);
-            audit($p, $u['id'], 'Purchasing', $r['pr_number'], 'purchase request approved', 'Budget remaining after: ' . number_format($remaining - (float)$r['amount'], 2));
-            Notify::user($p, (int)$r['requested_by'], 'Purchase approved', $r['pr_number'] . ' was approved. You can now order the parts.', 'purchasing');
-            return ['purchase_id' => $id, 'result' => 'Approved', 'message' => 'Approved. Budget remaining: PHP ' . number_format($remaining - (float)$r['amount'], 2) . '.'];
-        });
-    }
-
+    // ---------------------------------------------------------------- purchase orders (stock-in)
     private static function poCreate(array $u, array $d): array {
-        $id = idField($d, 'purchase_id'); $supplier = optId($d, 'supplier_id');
-        $ordered = dateField($d, 'ordered_on'); $expected = dateField($d, 'expected_on', false);
-        return transaction(function (PDO $p) use ($u, $id, $supplier, $ordered, $expected) {
-            $r = one($p, 'SELECT * FROM purchase_requests WHERE id=? FOR UPDATE', [$id]);
-            must($r && $r['status'] === 'Approved', 'Only approved requests can be ordered.', 409);
-            $supplier = $supplier ?? ($r['supplier_id'] ? (int)$r['supplier_id'] : null);
-            must($supplier !== null, 'Choose the supplier.');
-            $po = insert($p, 'purchase_orders', ['po_number' => 'TMP-' . bin2hex(random_bytes(5)), 'purchase_request_id' => $id, 'supplier_id' => $supplier,
-                'ordered_on' => $ordered, 'expected_on' => $expected, 'entered_by' => $u['id']]);
-            run($p, 'UPDATE purchase_orders SET po_number=? WHERE id=?', [refNumber('PO', $po), $po]);
-            run($p, "UPDATE purchase_requests SET status='Ordered', supplier_id=? WHERE id=?", [$supplier, $id]);
-            audit($p, $u['id'], 'Purchasing', refNumber('PO', $po), 'purchase order created', $r['pr_number']);
-            return ['order_id' => $po, 'message' => 'Purchase order ' . refNumber('PO', $po) . ' created.'];
+        requireRole($u, 'purchasing');
+        $supplier = idField($d, 'supplier_id');
+        $purpose = field($d, 'purpose', 255);
+        $reqId = optId($d, 'part_request_id');
+        $lines = self::lines($d);
+        foreach ($lines as $l) must(isset($l['unit_price']), 'Enter the unit price of every item.');
+        $total = round(array_sum(array_map(fn($l) => $l['quantity'] * (float)$l['unit_price'], $lines)), 2);
+        $threshold = Settings::value('purchase_approval_threshold');
+        $approver = $total <= $threshold ? 'finance' : 'admin';
+        return transaction(function (PDO $p) use ($u, $supplier, $purpose, $reqId, $lines, $total, $approver, $threshold) {
+            must((bool)one($p, 'SELECT id FROM suppliers WHERE id=? AND active=1', [$supplier]), 'Choose an active supplier.');
+            if ($reqId) must((bool)one($p, 'SELECT id FROM part_requests WHERE id=?', [$reqId]), 'Parts request not found.');
+            foreach ($lines as $l) must((bool)one($p, 'SELECT id FROM parts WHERE id=? AND active=1', [$l['part_id']]), 'Unknown part in the list.');
+            $id = insert($p, 'purchase_orders', ['po_ref' => 'TMP-' . bin2hex(random_bytes(6)), 'supplier_id' => $supplier, 'part_request_id' => $reqId, 'purpose' => $purpose,
+                'total_amount' => number_format($total, 2, '.', ''), 'approver_role' => $approver, 'status' => 'Pending Approval', 'requested_by' => $u['id']]);
+            $ref = refNumber('PO', $id);
+            run($p, 'UPDATE purchase_orders SET po_ref=? WHERE id=?', [$ref, $id]);
+            foreach ($lines as $l) insert($p, 'purchase_order_lines', ['purchase_order_id' => $id, 'part_id' => $l['part_id'], 'quantity' => $l['quantity'],
+                'unit_price' => $l['unit_price'], 'line_total' => number_format($l['quantity'] * (float)$l['unit_price'], 2, '.', '')]);
+            audit($p, $u['id'], 'Purchasing', 'po ' . $id, 'purchase order request created', "$ref PHP " . number_format($total, 2) . ' -> ' . ($approver === 'finance' ? 'Finance' : 'Admin'));
+            Notify::roles($p, [$approver], 'PO approval', "Purchase order $ref (PHP " . number_format($total, 2) . ') is waiting for your approval.', 'purchasing');
+            return ['message' => "Purchase order $ref (PHP " . number_format($total, 2) . ') sent to ' . ($approver === 'finance' ? 'Finance (PHP ' . number_format($threshold) . ' and below)' : 'the Admin (above PHP ' . number_format($threshold) . ')') . ' for approval.'];
         });
     }
 
-    /** Stock-in from a purchase order: updates stock, creates payable and parts expense. */
-    private static function receive(array $u, array $d): array {
-        $id = idField($d, 'order_id'); $qty = intField($d, 'quantity', 1);
-        $date = dateField($d, 'received_on'); $ref = optField($d, 'receipt_reference', 100); $warranty = dateField($d, 'warranty_until', false);
-        return transaction(function (PDO $p) use ($u, $id, $qty, $date, $ref, $warranty) {
-            $po = one($p, 'SELECT po.*, r.part_id, r.quantity, r.unit_cost, r.amount, r.part_request_id, r.pr_number, s.name AS supplier
-                FROM purchase_orders po JOIN purchase_requests r ON r.id=po.purchase_request_id LEFT JOIN suppliers s ON s.id=po.supplier_id WHERE po.id=? FOR UPDATE', [$id]);
-            must($po && $po['status'] === 'Ordered', 'Order is not waiting for delivery.', 409);
-            // TODO PENDING COMPANY CONFIRMATION (C11): partial deliveries and returns.
-            must($qty === (int)$po['quantity'], 'Received quantity must match the ordered quantity (' . $po['quantity'] . '). Partial deliveries need company rules.');
-            $pa = one($p, 'SELECT * FROM parts WHERE id=? FOR UPDATE', [$po['part_id']]);
-            run($p, 'UPDATE parts SET quantity_on_hand=quantity_on_hand+?, unit_cost=? WHERE id=?', [$qty, $po['unit_cost'], $po['part_id']]);
-            run($p, "UPDATE purchase_orders SET status='Received', received_on=?, receipt_reference=?, warranty_until=? WHERE id=?", [$date, $ref, $warranty, $id]);
-            run($p, "UPDATE purchase_requests SET status='Received' WHERE id=?", [$po['purchase_request_id']]);
-            insert($p, 'stock_movements', ['part_id' => $po['part_id'], 'movement_type' => 'Stock In', 'quantity_delta' => $qty, 'unit_cost' => $po['unit_cost'],
-                'reason' => 'Purchase order received', 'reference_type' => 'purchase_order', 'reference_id' => $id, 'actor_id' => $u['id']]);
-            // Finance side: amount owed to supplier and the parts expense.
-            insert($p, 'accounts_payable', ['supplier_id' => $po['supplier_id'], 'reference_number' => $po['po_number'] . ($ref ? ' / ' . $ref : ''),
-                'description' => 'Parts: ' . $pa['description'] . ' x' . $qty, 'amount' => $po['amount'], 'due_on' => null,
-                'source' => 'Purchase Order', 'source_id' => $id, 'recorded_by' => $u['id']]);
-            insert($p, 'expenses', ['category' => 'Parts', 'amount' => $po['amount'], 'incurred_on' => $date, 'payee' => $po['supplier'],
-                'reference_number' => $po['po_number'], 'description' => 'Parts purchase ' . $po['pr_number'] . ': ' . $pa['description'] . ' x' . $qty,
-                'source' => 'Parts Receipt', 'source_id' => $id, 'recorded_by' => $u['id']]);
-            if ($po['part_request_id']) {
-                run($p, "UPDATE part_requests SET status='Requested' WHERE id=? AND status='Not Available'", [$po['part_request_id']]);
+    /**
+     * Approve / reject. On approve the budget is checked and reserved in ONE locked
+     * step (SELECT ... FOR UPDATE on the budget row), so two approvals at the same
+     * time cannot both use the same remaining money.
+     */
+    private static function poDecide(array $u, array $d): array {
+        must(hasRole($u, 'finance', 'admin'), 'Only Finance or the Admin approve purchase orders.', 403);
+        $id = idField($d, 'po_id');
+        $decision = choiceField($d, 'decision', ['approve', 'reject']);
+        $notes = $decision === 'reject' ? field($d, 'notes', 255) : optField($d, 'notes', 255);
+        return transaction(function (PDO $p) use ($u, $id, $decision, $notes) {
+            $o = one($p, 'SELECT * FROM purchase_orders WHERE id=? FOR UPDATE', [$id]);
+            must((bool)$o, 'Purchase order not found.', 404);
+            must($o['status'] === 'Pending Approval', 'This purchase order is ' . $o['status'] . '.', 409);
+            must($u['role'] === $o['approver_role'], 'This purchase order is routed to ' . ($o['approver_role'] === 'finance' ? 'Finance' : 'the Admin') . ' (approval limit rule).', 403);
+            if ($decision === 'reject') {
+                run($p, "UPDATE purchase_orders SET status='Rejected', decided_by=?, decided_at=NOW(), decision_notes=? WHERE id=?", [$u['id'], $notes, $id]);
+                audit($p, $u['id'], 'Purchasing', 'po ' . $id, 'purchase order rejected', $o['po_ref'] . ': ' . $notes);
+                Notify::user($p, (int)$o['requested_by'], 'PO rejected', $o['po_ref'] . ' was rejected: ' . $notes, 'purchasing');
+                return ['message' => 'Purchase order rejected.'];
             }
-            audit($p, $u['id'], 'Inventory', $po['po_number'], 'stock received', $pa['part_number'] . ' +' . $qty);
-            Notify::roles($p, ['finance'], 'Payable', 'Parts received on ' . $po['po_number'] . ' (PHP ' . number_format((float)$po['amount'], 2) . ') is now in Accounts Payable.', 'finance');
-            return ['order_id' => $id, 'message' => 'Stock received. Payable and parts expense recorded for Finance.'];
+            $b = one($p, "SELECT * FROM budgets WHERE status='Active' AND category='Purchasing' AND CURRENT_DATE() BETWEEN period_start AND period_end ORDER BY id DESC LIMIT 1 FOR UPDATE");
+            $available = $b ? round((float)$b['amount'] - (float)$b['reserved_amount'] - (float)$b['spent_amount'], 2) : 0.0;
+            if (!$b || $available < (float)$o['total_amount']) {
+                $why = !$b ? 'no active purchasing budget for today' : 'available budget PHP ' . number_format($available, 2) . ' is less than PHP ' . number_format((float)$o['total_amount'], 2);
+                run($p, "UPDATE purchase_orders SET status='Rejected - Insufficient Budget', decided_by=?, decided_at=NOW(), decision_notes=? WHERE id=?", [$u['id'], cut('System: ' . $why, 255), $id]);
+                audit($p, null, 'Purchasing', 'po ' . $id, 'purchase order rejected - insufficient budget', $o['po_ref'] . ': ' . $why);
+                Notify::user($p, (int)$o['requested_by'], 'PO rejected', $o['po_ref'] . ' was automatically rejected: insufficient budget (' . $why . ').', 'purchasing');
+                return ['warning' => 'Rejected - Insufficient Budget: ' . $why . '. No PO document was made.'];
+            }
+            run($p, 'UPDATE budgets SET reserved_amount=reserved_amount+? WHERE id=?', [$o['total_amount'], $b['id']]);
+            run($p, "UPDATE purchase_orders SET status='Approved', payment_status='Pending Payment', budget_id=?, reserved_amount=total_amount, decided_by=?, decided_at=NOW(), decision_notes=? WHERE id=?",
+                [$b['id'], $u['id'], $notes, $id]);
+            audit($p, $u['id'], 'Purchasing', 'po ' . $id, 'purchase order approved', $o['po_ref'] . ': PHP ' . $o['total_amount'] . ' reserved from the budget');
+            Notify::user($p, (int)$o['requested_by'], 'PO approved', $o['po_ref'] . ' is approved. Print the PO and proceed with the purchase.', 'purchasing');
+            Notify::roles($p, ['finance'], 'PO pending payment', $o['po_ref'] . ' (PHP ' . number_format((float)$o['total_amount'], 2) . ') was approved and is Pending Payment.', 'finance');
+            return ['message' => 'Approved. PHP ' . number_format((float)$o['total_amount'], 2) . ' is reserved from the purchasing budget. The PO document is ready to print.'];
         });
+    }
+
+    /** Receiving (stock-in). Partial deliveries are allowed: "Partially Received". */
+    private static function poReceive(array $u, array $d): array {
+        requireRole($u, 'purchasing');
+        $id = idField($d, 'po_id');
+        $invoice = optField($d, 'supplier_invoice_no', 80);
+        return transaction(function (PDO $p) use ($u, $d, $id, $invoice) {
+            $o = one($p, 'SELECT * FROM purchase_orders WHERE id=? FOR UPDATE', [$id]);
+            must((bool)$o, 'Purchase order not found.', 404);
+            must(in_array($o['status'], ['Approved', 'Partially Received'], true), 'Only approved purchase orders can be received (this one is ' . $o['status'] . ').', 409);
+            $got = [];
+            foreach ((array)($d['receive'] ?? []) as $x) if (is_array($x) && !empty($x['line_id'])) $got[(int)$x['line_id']] = (int)($x['qty'] ?? 0);
+            $total = 0;
+            foreach (many($p, 'SELECT l.*, pt.part_number FROM purchase_order_lines l JOIN parts pt ON pt.id=l.part_id WHERE l.purchase_order_id=? FOR UPDATE', [$id]) as $l) {
+                $q = $got[(int)$l['id']] ?? 0;
+                if ($q <= 0) continue;
+                must($q <= (int)$l['quantity'] - (int)$l['received_qty'], 'Received quantity of ' . $l['part_number'] . ' is more than the remaining ordered quantity.');
+                self::move($p, $u, (int)$l['part_id'], 'Stock In', $q, (float)$l['unit_price'], 'Received from ' . $o['po_ref'], 'purchase_order', $id);
+                run($p, 'UPDATE parts SET unit_cost=? WHERE id=?', [$l['unit_price'], $l['part_id']]);
+                run($p, 'UPDATE purchase_order_lines SET received_qty=received_qty+? WHERE id=?', [$q, $l['id']]);
+                $total += $q;
+            }
+            must($total > 0, 'Enter the quantities actually received.');
+            Files::store($p, $u, 'receipt', 'purchase', $id, 'Delivery Receipt / Supplier Invoice');
+            $left = (int)one($p, 'SELECT COALESCE(SUM(quantity-received_qty),0) AS n FROM purchase_order_lines WHERE purchase_order_id=?', [$id])['n'];
+            $status = $left === 0 ? 'Received' : 'Partially Received';
+            run($p, 'UPDATE purchase_orders SET status=?, supplier_invoice_no=COALESCE(?, supplier_invoice_no) WHERE id=?', [$status, $invoice, $id]);
+            self::refreshPayment($p, $id);
+            audit($p, $u['id'], 'Purchasing', 'po ' . $id, 'parts received', $o['po_ref'] . ': ' . $total . ' unit(s), ' . $status);
+            Notify::roles($p, ['finance'], 'Parts received', $o['po_ref'] . ' is ' . $status . '. Check the supplier invoice before payment.', 'finance');
+            return ['message' => "Received $total unit(s). PO is $status; inventory updated."];
+        });
+    }
+
+    /** Close a PO whose balance will not be delivered: frees the reserved budget of the undelivered items. */
+    private static function poClose(array $u, array $d): array {
+        requireRole($u, 'purchasing');
+        $id = idField($d, 'po_id'); $reason = field($d, 'reason', 255);
+        return transaction(function (PDO $p) use ($u, $id, $reason) {
+            $o = one($p, 'SELECT * FROM purchase_orders WHERE id=? FOR UPDATE', [$id]);
+            must($o && in_array($o['status'], ['Approved', 'Partially Received'], true), 'Only an approved, not fully received PO can be closed.', 409);
+            $undelivered = (float)one($p, 'SELECT COALESCE(SUM((quantity-received_qty)*unit_price),0) AS v FROM purchase_order_lines WHERE purchase_order_id=?', [$id])['v'];
+            $free = round(min($undelivered, (float)$o['reserved_amount']), 2);
+            if ($o['budget_id'] && $free > 0) run($p, 'UPDATE budgets SET reserved_amount=GREATEST(reserved_amount-?,0) WHERE id=?', [$free, $o['budget_id']]);
+            run($p, "UPDATE purchase_orders SET status='Closed', reserved_amount=GREATEST(reserved_amount-?,0), decision_notes=? WHERE id=?", [$free, cut('Closed: ' . $reason, 255), $id]);
+            self::refreshPayment($p, $id);
+            audit($p, $u['id'], 'Purchasing', 'po ' . $id, 'purchase order closed', $o['po_ref'] . ': PHP ' . number_format($free, 2) . ' returned to the budget. ' . $reason);
+            return ['message' => 'PO closed. PHP ' . number_format($free, 2) . ' of reserved budget was released.'];
+        });
+    }
+
+    /** Payment status follows the value of what was received (and what was paid). */
+    public static function refreshPayment(PDO $p, int $id): void {
+        $o = one($p, 'SELECT * FROM purchase_orders WHERE id=?', [$id]);
+        if (!$o['payment_status']) return;
+        $received = (float)one($p, 'SELECT COALESCE(SUM(received_qty*unit_price),0) AS v FROM purchase_order_lines WHERE purchase_order_id=?', [$id])['v'];
+        $paid = (float)$o['paid_amount'];
+        $final = in_array($o['status'], ['Received', 'Closed'], true);
+        $status = ($paid <= 0) ? 'Pending Payment' : (($final && $paid >= round($received, 2)) ? 'Paid' : 'Partially Paid');
+        run($p, 'UPDATE purchase_orders SET payment_status=? WHERE id=?', [$status, $id]);
+    }
+
+    private static function poDetails(array $u, array $d): array {
+        must(Access::canOpen($u, 'purchasing') || Access::canOpen($u, 'finance'), 'Not allowed.', 403);
+        $id = idField($d, 'po_id'); $p = db();
+        $o = one($p, 'SELECT o.*, s.name AS supplier, s.address AS supplier_address, s.contact_person AS supplier_contact, s.contact_number AS supplier_phone,
+                ru.full_name AS requested_by_name, du.full_name AS decided_by_name, du.signature_document_id AS approver_signature, r.request_ref
+            FROM purchase_orders o JOIN suppliers s ON s.id=o.supplier_id JOIN users ru ON ru.id=o.requested_by LEFT JOIN users du ON du.id=o.decided_by
+            LEFT JOIN part_requests r ON r.id=o.part_request_id WHERE o.id=?', [$id]);
+        must((bool)$o, 'Purchase order not found.', 404);
+        return ['po' => $o,
+            'lines' => many($p, 'SELECT l.*, pt.part_number, pt.description, pt.unit FROM purchase_order_lines l JOIN parts pt ON pt.id=l.part_id WHERE l.purchase_order_id=? ORDER BY l.id', [$id]),
+            'payments' => many($p, "SELECT d.*, u.full_name AS recorded_by_name FROM disbursements d JOIN users u ON u.id=d.recorded_by WHERE d.source_type='purchase_order' AND d.source_id=? ORDER BY d.id", [$id]),
+            'documents' => Files::of($p, 'purchase', $id)];
+    }
+
+    private static function requestDetails(array $u, array $d): array {
+        must(Access::canOpen($u, 'purchasing'), 'Not allowed.', 403);
+        $id = idField($d, 'request_id'); $p = db();
+        $r = one($p, 'SELECT r.*, v.plate_number, v.truck_number, v.make_brand, v.engine_number, m.job_ref, ru.full_name AS requested_by_name, pu.full_name AS processed_by_name
+            FROM part_requests r JOIN vehicles v ON v.id=r.vehicle_id LEFT JOIN maintenance_jobs m ON m.id=r.maintenance_job_id JOIN users ru ON ru.id=r.requested_by
+            LEFT JOIN users pu ON pu.id=r.processed_by WHERE r.id=?', [$id]);
+        must((bool)$r, 'Request not found.', 404);
+        return ['request' => $r, 'lines' => many($p, 'SELECT l.*, pt.part_number, pt.description, pt.unit, pt.quantity_on_hand FROM part_request_lines l JOIN parts pt ON pt.id=l.part_id WHERE l.part_request_id=? ORDER BY l.id', [$id])];
     }
 }

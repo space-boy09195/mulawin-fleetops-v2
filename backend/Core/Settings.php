@@ -1,225 +1,94 @@
 <?php
 /*
  * =====================================================================
- *  backend/Core/Settings.php  —  FORMULA ENGINE
+ *  backend/Core/Settings.php  —  SYSTEM SETTINGS (simple values)
  * =====================================================================
- *  Lahat ng computation ng system ay dumadaan dito para iisang lugar
- *  lang ang babaguhin kapag nagbago ang formula ng kumpanya.
+ *  Where does a value come from?
+ *    1. A value saved by the Admin in Administration > Settings (table app_settings)
+ *    2. Otherwise the default below.
+ *  Some defaults are read from config/formulas.php (values the company
+ *  already gave: purchase limit 10,000; 1 liter = 4 km; reminder days ...).
  *
- *  Saan galing ang value?
- *    1. Kung may naka-save sa database (Formula Settings page)  -> iyon.
- *    2. Kung wala                                                -> config/formulas.php
- *
- *  Main functions:
- *    Settings::value('km_per_liter')         -> isang numero
- *    Settings::items('payroll_deduction')    -> listahan ng computation
- *    Settings::fuelCost($km)                 -> (km ÷ km/L) × presyo
- *    Settings::computeItems($scope, $ctx)    -> kino-compute ang listahan
- *    Settings::snapshot([...])               -> kopya ng values na ginamit
- *                                               (sine-save sa record para
- *                                               hindi magbago ang luma)
+ *  Fund request categories are kept in their own table (fund_categories).
  * =====================================================================
  */
 declare(strict_types=1);
 
 final class Settings {
-    /** Allowed calc types. Must match the explanation in config/formulas.php. */
-    public const CALC_TYPES = ['fixed', 'percent_of_rate', 'per_day', 'per_km', 'per_trip', 'fuel', 'route_toll', 'manual', 'ledger'];
-    /** Which calc types make sense for each list. */
-    public const SCOPE_CALCS = [
-        'trip_allowance'    => ['fixed'],
-        'trip_pnl_expense'  => ['fixed', 'per_km', 'fuel', 'route_toll', 'percent_of_rate'],
-        'payroll_earning'   => ['manual', 'fixed', 'per_day', 'per_trip'],
-        'payroll_deduction' => ['manual', 'fixed', 'per_day', 'per_trip', 'ledger'],
+    /**
+     * key => [label, default, unit, help, min, max]
+     * Defaults marked "config" are taken from config/formulas.php when present.
+     */
+    public const DEFS = [
+        'purchase_approval_threshold' => ['Purchase approval limit', 10000, 'PHP',
+            'Purchase orders up to this amount go to Finance for approval; above it they go to the Admin (PDF #12).', 1, 100000000],
+        'pms_interval_months'         => ['Preventive Maintenance Service every', 1, 'month(s)',
+            'Monthly PMS of every truck regardless of mileage (PDF #13, question 7).', 1, 12],
+        'document_alert_days'         => ['Remind about expiring truck documents', 30, 'days before',
+            'OR/CR registration, insurance and uploaded documents with an expiry date.', 1, 365],
+        'license_alert_days'          => ['Remind about expiring driver licenses', 30, 'days before', '', 1, 365],
+        'default_payment_terms_days'  => ['Default client payment terms', 30, 'days',
+            'Used when the client has no payment terms. Due date = invoice date + terms.', 0, 365],
+        'vat_rate'                    => ['VAT rate shown on the service invoice', 12, '%',
+            'Billed amounts are VAT-inclusive. The invoice shows VATable sales and VAT. Use 0 if not VAT-registered.', 0, 30],
+        'km_per_liter'                => ['Kilometers per liter of diesel', 4, 'km/L',
+            'For the estimated diesel cost of a trip (PDF #13: 1 liter = 4 km).', 0.1, 100],
+        'fuel_price_per_liter'        => ['Diesel price per liter', 100, 'PHP/L',
+            'Used with the value above: estimated diesel = (km / km per liter) x price.', 0, 1000],
+        'units_per_trip'              => ['Default units per car carrier trip', 5, 'units',
+            'First value of "units" on a car carrier trip; can be changed per trip.', 1, 20],
     ];
-    public const SCOPE_LABELS = [
-        'trip_allowance'    => 'Fund request categories (preset amounts the dispatcher picks)',
-        'trip_pnl_expense'  => 'Projected P&L expenses per trip',
-        'payroll_earning'   => 'Payroll additional earnings',
-        'payroll_deduction' => 'Payroll deductions',
-    ];
-    /** Which roles may edit which settings group / item scope (Admin may edit everything). */
-    public const EDITORS = [
-        'Approvals' => ['admin'],
-        'Fuel (projected P&L)' => ['admin', 'finance'],
-        'Car Carrier' => ['admin'],
-        'Maintenance' => ['admin'],
-        'Inspection' => ['admin'],
-        'Reminders' => ['admin'],
-        'Billing' => ['admin', 'finance'],
-        'Payroll' => ['admin', 'payroll'],
-        'Auto-assignment' => ['admin'],
-        'trip_allowance' => ['admin', 'finance'],
-        'trip_pnl_expense' => ['admin', 'finance'],
-        'payroll_earning' => ['admin', 'payroll'],
-        'payroll_deduction' => ['admin', 'payroll'],
-    ];
+    private const FROM_CONFIG = ['purchase_approval_threshold', 'document_alert_days', 'license_alert_days',
+                                 'default_payment_terms_days', 'km_per_liter', 'fuel_price_per_liter', 'units_per_trip'];
 
-    private static ?array $defaults = null;
     private static ?array $saved = null;
+    private static ?array $config = null;
 
-    /** Defaults from config/formulas.php */
-    public static function defaults(): array {
-        if (self::$defaults === null) {
+    public static function clearCache(): void { self::$saved = null; }
+
+    private static function config(): array {
+        if (self::$config === null) {
             $file = dirname(__DIR__, 2) . '/config/formulas.php';
             $cfg = is_file($file) ? require $file : [];
-            self::$defaults = ['values' => $cfg['values'] ?? [], 'items' => $cfg['items'] ?? []];
+            self::$config = is_array($cfg) ? ($cfg['values'] ?? []) : [];
         }
-        return self::$defaults;
+        return self::$config;
     }
 
-    /** Saved overrides from the database (read once per request). */
     private static function saved(): array {
         if (self::$saved === null) {
             self::$saved = [];
             try {
-                foreach (many(db(), 'SELECT setting_key, setting_value FROM app_settings') as $r) {
-                    self::$saved[$r['setting_key']] = $r['setting_value'];
-                }
-            } catch (Throwable $e) {
-                error_log('Settings read failed, using config defaults: ' . $e->getMessage());
-            }
+                foreach (many(db(), 'SELECT setting_key, setting_value FROM app_settings') as $r) self::$saved[$r['setting_key']] = $r['setting_value'];
+            } catch (Throwable $e) { error_log('Settings read failed: ' . $e->getMessage()); }
         }
         return self::$saved;
     }
-    public static function clearCache(): void { self::$saved = null; }
 
-    /** One number. Example: Settings::value('pm_interval_km') -> 10000 */
+    public static function default(string $key): float {
+        must(isset(self::DEFS[$key]), 'Unknown setting ' . $key);
+        if (in_array($key, self::FROM_CONFIG, true) && isset(self::config()[$key]['value'])) return (float)self::config()[$key]['value'];
+        return (float)self::DEFS[$key][1];
+    }
+
     public static function value(string $key): float {
         $saved = self::saved();
-        if (array_key_exists($key, $saved) && is_numeric($saved[$key])) return (float)$saved[$key];
-        $def = self::defaults()['values'][$key]['value'] ?? null;
-        must($def !== null, "Formula setting '$key' is missing in config/formulas.php.", 500);
-        return (float)$def;
+        return array_key_exists($key, $saved) ? (float)$saved[$key] : self::default($key);
     }
 
-    /** All values with labels for the Formula Settings page. */
-    public static function allValues(): array {
+    /** All settings for the Administration > Settings page. */
+    public static function all(): array {
         $out = [];
-        foreach (self::defaults()['values'] as $key => $meta) {
-            $out[] = [
-                'key' => $key, 'group' => $meta['group'] ?? 'Other', 'label' => $meta['label'] ?? $key,
-                'unit' => $meta['unit'] ?? '', 'help' => $meta['help'] ?? '', 'source' => $meta['source'] ?? '',
-                'default' => $meta['value'], 'value' => self::value($key),
-                'is_default' => !array_key_exists($key, self::saved()),
-            ];
+        foreach (self::DEFS as $key => [$label, , $unit, $help, $min, $max]) {
+            $out[] = ['key' => $key, 'label' => $label, 'unit' => $unit, 'help' => $help, 'min' => $min, 'max' => $max,
+                      'value' => self::value($key), 'default' => self::default($key)];
         }
         return $out;
     }
 
-    /** List of computation items for a scope (database list if customized, otherwise config defaults). */
-    public static function items(string $scope, bool $activeOnly = true): array {
-        must(isset(self::SCOPE_CALCS[$scope]), 'Unknown formula list.', 500);
-        $rows = [];
-        try {
-            $rows = many(db(), 'SELECT * FROM formula_items WHERE scope=? ORDER BY sort_order, id', [$scope]);
-        } catch (Throwable $e) {
-            error_log('formula_items read failed, using defaults: ' . $e->getMessage());
-        }
-        if (!$rows) {
-            $rows = [];
-            foreach (self::defaults()['items'][$scope] ?? [] as $i => $it) {
-                $rows[] = ['id' => null, 'scope' => $scope, 'name' => $it['name'], 'calc' => $it['calc'],
-                    'amount' => (float)($it['amount'] ?? 0), 'divisor' => (float)($it['divisor'] ?? 1),
-                    'only_if_attended' => !empty($it['only_if_attended']) ? 1 : 0, 'ledger' => $it['ledger'] ?? null,
-                    'source' => $it['source'] ?? '', 'active' => 1, 'sort_order' => $i, 'is_default' => true];
-            }
-        }
-        $out = [];
-        foreach ($rows as $r) {
-            $r['amount'] = (float)$r['amount'];
-            $r['divisor'] = (float)($r['divisor'] ?: 1);
-            $r['only_if_attended'] = (int)$r['only_if_attended'];
-            $r['active'] = (int)$r['active'];
-            if ($activeOnly && !$r['active']) continue;
-            $out[] = $r;
-        }
-        return $out;
-    }
-
-    // -----------------------------------------------------------------
-    //  FORMULAS
-    // -----------------------------------------------------------------
-
-    /** Fuel cost = (km ÷ km per liter) × price per liter.  (Billing P&L G53, G54) */
-    public static function fuelCost(float $km): float {
-        $kmPerLiter = self::value('km_per_liter');
-        if ($kmPerLiter <= 0) return 0.0;
-        return round(($km / $kmPerLiter) * self::value('fuel_price_per_liter'), 2);
-    }
-
-    /**
-     * Computes every active item in a list.
-     * $ctx keys used (all optional):
-     *   km, toll, rate (trip rate / gross sales), days (days worked),
-     *   trips (number of trips), manual => [name => amount],
-     *   ledgers => [ledger type => installment amount]
-     * Returns ['lines' => [[name, calc, amount, explain]], 'total' => float]
-     */
-    public static function computeItems(string $scope, array $ctx): array {
-        $lines = []; $total = 0.0;
-        $days = (float)($ctx['days'] ?? 0);
-        foreach (self::items($scope) as $it) {
-            $amt = 0.0; $explain = '';
-            $a = (float)$it['amount'];
-            switch ($it['calc']) {
-                case 'fixed':
-                    $amt = $a; $explain = 'fixed ' . number_format($a, 2); break;
-                case 'percent_of_rate':
-                    $rate = (float)($ctx['rate'] ?? 0);
-                    $amt = $rate * $a / 100; $explain = number_format($a, 2) . '% of ' . number_format($rate, 2); break;
-                case 'per_day':
-                    $div = (float)$it['divisor'] ?: 1;
-                    $amt = ($a / $div) * $days;
-                    $explain = '(' . rtrim(rtrim(number_format($a, 4, '.', ''), '0'), '.') . ' ÷ ' . rtrim(rtrim(number_format($div, 4, '.', ''), '0'), '.') . ') × ' . $days . ' day(s)'; break;
-                case 'per_km':
-                    $km = (float)($ctx['km'] ?? 0);
-                    $amt = $a * $km; $explain = number_format($a, 2) . ' × ' . $km . ' km'; break;
-                case 'per_trip':
-                    $trips = (float)($ctx['trips'] ?? 0);
-                    $amt = $a * $trips; $explain = number_format($a, 2) . ' × ' . $trips . ' trip(s)'; break;
-                case 'fuel':
-                    $km = (float)($ctx['km'] ?? 0);
-                    $amt = self::fuelCost($km);
-                    $explain = '(' . $km . ' km ÷ ' . self::value('km_per_liter') . ' km/L) × ' . number_format(self::value('fuel_price_per_liter'), 2) . '/L'; break;
-                case 'route_toll':
-                    $amt = (float)($ctx['toll'] ?? 0); $explain = 'RFID/toll saved on route'; break;
-                case 'manual':
-                    $amt = (float)($ctx['manual'][$it['name']] ?? 0); $explain = 'entered manually'; break;
-                case 'ledger':
-                    $amt = (float)($ctx['ledgers'][$it['ledger'] ?? ''] ?? 0); $explain = 'installment from ' . ($it['ledger'] ?? '') . ' balance'; break;
-            }
-            // Same as Excel IF(D<>"", ...): only when the employee had attendance.
-            if ((int)$it['only_if_attended'] === 1 && $days <= 0) { $amt = 0.0; $explain = 'no attendance, not applied'; }
-            // Manual overrides (Payroll officer edited the draft line).
-            if ($it['calc'] !== 'manual' && isset($ctx['override'][$it['name']])) {
-                $amt = (float)$ctx['override'][$it['name']]; $explain = 'edited by Payroll';
-            }
-            $amt = round($amt, 2);
-            $lines[] = ['name' => $it['name'], 'calc' => $it['calc'], 'amount' => $amt, 'explain' => $explain,
-                        'ledger' => $it['ledger'] ?? null];
-            $total += $amt;
-        }
-        return ['lines' => $lines, 'total' => round($total, 2)];
-    }
-
-    /** Projected P&L for one trip (Billing P&L workbook). */
-    public static function projectedPnl(float $rate, float $km, float $toll): array {
-        $exp = self::computeItems('trip_pnl_expense', ['rate' => $rate, 'km' => $km, 'toll' => $toll]);
-        $net = round($rate - $exp['total'], 2);
-        return ['gross_sales' => round($rate, 2), 'expenses' => $exp['lines'], 'total_expense' => $exp['total'],
-                'net_income' => $net, 'margin_percent' => $rate > 0 ? round($net / $rate * 100, 2) : null];
-    }
-
-    /** Copy of values used, saved inside fund requests / payroll so old records never change. */
-    public static function snapshot(array $keys, array $scopes = []): array {
-        $out = ['values' => [], 'items' => [], 'taken_at' => date('Y-m-d H:i:s')];
-        foreach ($keys as $k) $out['values'][$k] = self::value($k);
-        foreach ($scopes as $s) $out['items'][$s] = self::items($s);
-        return $out;
-    }
-
-    public static function canEdit(array $u, string $groupOrScope): bool {
-        return in_array($u['role'], self::EDITORS[$groupOrScope] ?? ['admin'], true);
+    /** Estimated diesel cost of a trip: (km / km per liter) x diesel price. */
+    public static function fuelEstimate(float $km): float {
+        $kpl = self::value('km_per_liter');
+        return $kpl > 0 ? round($km / $kpl * self::value('fuel_price_per_liter'), 2) : 0.0;
     }
 }

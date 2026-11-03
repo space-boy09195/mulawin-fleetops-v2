@@ -7,8 +7,8 @@
  *
  *  MODULE ISOLATION:
  *  A module file is loaded only when it is needed, inside try/catch.
- *  If backend/Modules/Accounting/Payroll.php has an error, only Payroll actions
- *  fail with "module unavailable"; Trips, Billing and the rest keep
+ *  If backend/Modules/Accounting/Billing.php has an error, only Billing actions
+ *  fail with "module unavailable"; Trips, Finance and the rest keep
  *  working. (PHP syntax errors in a required file are catchable as
  *  ParseError, so even a broken file does not stop the others.)
  * =====================================================================
@@ -20,18 +20,17 @@ final class ModuleUnavailable extends RuntimeException {}
 
 final class Actions {
     /**
-     * Modules naka-grupo ayon sa DEPARTMENT (folder sa backend/Modules/<Department>/).
-     *   Operations     : Fleet, Trips (kasama ang Inspections/Checklist.php)
-     *   Maintenance    : Maintenance, Purchasing (truck parts, ayon sa PDF Maintenance Module)
-     *   Accounting     : Funds, Finance, Billing, Payroll
-     *   General        : Analytics (dashboards at reports), Documents
-     *   Administration : Admin (users, formula settings, activity log, backup)
-     * Para magdagdag ng module: idagdag dito at gumawa ng backend/Modules/<Department>/<Name>.php
+     * Modules grouped by DEPARTMENT (folder backend/Modules/<Department>/).
+     *   Operations     : Fleet (trucks, drivers & helpers), Clients, Trips (with Inspections/Checklist.php)
+     *   Maintenance    : Maintenance, Purchasing (truck parts, inventory, purchase orders)
+     *   Accounting     : Funds (trip funds), Billing, Finance
+     *   General        : Analytics (dashboard and reports), Documents
+     *   Administration : Admin (users, settings, activity log, backup)
      */
     public const MODULES = [
-        'Fleet' => 'Operations', 'Trips' => 'Operations',
+        'Fleet' => 'Operations', 'Clients' => 'Operations', 'Trips' => 'Operations',
         'Maintenance' => 'Maintenance', 'Purchasing' => 'Maintenance',
-        'Funds' => 'Accounting', 'Finance' => 'Accounting', 'Billing' => 'Accounting', 'Payroll' => 'Accounting',
+        'Funds' => 'Accounting', 'Billing' => 'Accounting', 'Finance' => 'Accounting',
         'Analytics' => 'General', 'Documents' => 'General',
         'Admin' => 'Administration',
     ];
@@ -53,6 +52,7 @@ final class Actions {
     /** POST ?api=Module.action */
     public static function run(string $api, array $data): array {
         must((bool)preg_match('/^([A-Z][A-Za-z]+)\.([a-z_]+)$/', $api, $m), 'Unknown action.', 404);
+        core('Access');
         $u = currentUser();
         must(!$u['must_change_password'] || $api === 'Admin.change_password', 'Please change your password first.', 403);
         $class = self::load($m[1]);
@@ -73,6 +73,13 @@ final class Actions {
  * Helper for modules: runs several read sections and keeps going when
  * one section fails (the page shows a small warning for that part only).
  */
+/** Adds more read sections to an existing result (keeps all warnings). */
+function mergeSections(array $data, array $sections): array {
+    $more = readSections($sections);
+    $data['_errors'] = array_merge($data['_errors'] ?? [], $more['_errors']);
+    unset($more['_errors']);
+    return $data + $more;
+}
 function readSections(array $sections): array {
     $out = ['_errors' => []];
     foreach ($sections as $name => $fn) {

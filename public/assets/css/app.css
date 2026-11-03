@@ -59,17 +59,6 @@
 .req::after { content: " *"; color: var(--danger); }
 .form-error { display: none; }
 
-/* ---- Workflow steps on trip cards ---- */
-.trip-card { border: 1px solid var(--card-border); border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 12px; }
-.trip-card .trip-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.trip-card .trip-ref { font-weight: 700; font-size: .95rem; }
-.trip-meta { font-size: .8rem; color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 6px 0; }
-.steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-.step { font-size: .7rem; padding: 3px 8px; border-radius: 12px; background: #eef2f0; color: #64748b; }
-.step.done { background: var(--badge-available); color: var(--badge-available-t); }
-.step.now { background: #fff3d1; color: #805900; font-weight: 700; }
-.trip-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-
 /* ---- Checklist (57 items from the company scans) ---- */
 .checklist-table td, .checklist-table th { padding: 4px 8px; font-size: .78rem; }
 .checklist-table input[type=radio] { transform: scale(1.15); }
@@ -88,13 +77,7 @@
 .breakdown td { padding: 3px 6px; border-bottom: 1px dashed #e2e8f0; }
 .breakdown .total td { font-weight: 700; border-top: 2px solid #cbd5e1; }
 
-/* ---- Payslip / printable forms (DRIVERS PAYROLL payslip layout) ---- */
-.payslip { border: 1px solid #333; padding: 14px 18px; margin-bottom: 16px; font-size: .82rem; page-break-inside: avoid; background: #fff; }
-.payslip h6 { margin: 0; text-align: center; font-weight: 700; }
-.payslip .addr { text-align: center; font-size: .75rem; margin-bottom: 6px; }
-.payslip table { width: 100%; }
-.payslip td { padding: 2px 4px; }
-.payslip .sig { margin-top: 18px; border-top: 1px solid #333; width: 220px; text-align: center; font-size: .72rem; }
+/* ---- Print area ---- */
 #printArea { display: none; }
 /* Printed report (Reports & Analytics > Print) */
 .print-report { font-size: 11px; color: #111; }
@@ -236,3 +219,115 @@ a { color: var(--primary); }
   .chart-grid { grid-template-columns: 1fr; }
 }
 .bi-blank::before { content: ""; display: inline-block; width: 1em; }
+
+/* =====================================================================
+   Revision: simple flat menu, filter modal summary, drawers, steps,
+   trip board, printable forms (PDF #13 formats) and map picker.
+   ===================================================================== */
+/* ---- Flat menu ---- */
+.flat-nav .flat-link { font-size: .86rem; margin-bottom: 2px; border-radius: 8px; padding: 8px 10px; }
+.flat-nav .flat-link .nav-icon { width: 20px; text-align: center; font-size: 1rem; color: var(--sidebar-text-muted); }
+.flat-nav .flat-link:hover { background: var(--sidebar-hover-bg); color: #fff; }
+.flat-nav .flat-link.active { background: var(--sidebar-active-bg); color: var(--sidebar-active-txt); border-left-color: var(--accent); font-weight: 600; }
+.flat-nav .flat-link.active .nav-icon { color: var(--sidebar-active-txt); }
+.nav-heading { font-size: .66rem; text-transform: uppercase; letter-spacing: .08em; color: var(--sidebar-text-muted); opacity: .75; margin: 14px 10px 4px; font-weight: 700; }
+.sidebar.collapsed .nav-heading { visibility: hidden; height: 6px; margin: 6px 0; }
+.sidebar.collapsed .flat-link { justify-content: center; }
+.sidebar.collapsed .flat-link .nav-label { display: none; }
+
+/* ---- Filter summary ---- */
+.filter-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .8rem; color: var(--text-muted); margin: 0 0 12px; }
+.filter-chip { background: #fff7e0; border: 1px solid #f1dca1; color: #7a5600; border-radius: 20px; padding: 2px 10px; }
+
+/* ---- Drawer ---- */
+.app-drawer { --bs-offcanvas-width: min(760px, 100vw); }
+.app-drawer .offcanvas-header { border-bottom: 1px solid var(--card-border); background: #f7faf8; }
+.drawer-h { display: flex; justify-content: space-between; align-items: center; font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; color: var(--primary); margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--card-border); }
+.drawer-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px; background: #fffaf0; border: 1px solid #f1dca1; border-radius: 10px; margin: 12px 0; }
+.drawer-actions .why { width: 100%; font-size: .78rem; color: #8a4b00; }
+.kv { display: grid; grid-template-columns: minmax(130px, 34%) 1fr; gap: 6px 14px; font-size: .84rem; margin: 0; }
+.kv dt { color: var(--text-muted); font-weight: 500; }
+.kv dd { margin: 0; word-break: break-word; }
+.doc-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.doc-list li { display: flex; gap: 10px; align-items: flex-start; font-size: .84rem; }
+.doc-list i { font-size: 1.2rem; color: var(--primary); }
+.timeline { list-style: none; padding: 0; margin: 0; font-size: .8rem; }
+.timeline li { padding: 6px 0 6px 14px; border-left: 2px solid #d6e5da; position: relative; }
+.timeline li::before { content: ''; position: absolute; left: -5px; top: 11px; width: 8px; height: 8px; border-radius: 50%; background: var(--sidebar-stripe); }
+.timeline .when { color: var(--text-muted); font-size: .72rem; }
+
+/* ---- Progress steps ---- */
+.wf-steps { display: flex; align-items: flex-start; margin: 4px 0 8px; }
+.wf-step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; font-size: .72rem; color: var(--text-muted); text-align: center; }
+.wf-step::before { content: ''; position: absolute; top: 12px; left: -50%; width: 100%; height: 3px; background: #dbe5de; z-index: 0; }
+.wf-step:first-child::before { display: none; }
+.wf-step .dot { width: 26px; height: 26px; border-radius: 50%; background: #e7eee9; color: #64748b; display: flex; align-items: center; justify-content: center; font-weight: 700; z-index: 1; border: 2px solid #fff; }
+.wf-step.done .dot { background: var(--sidebar-stripe); color: #fff; }
+.wf-step.done::before, .wf-step.now::before { background: var(--sidebar-stripe); }
+.wf-step.now .dot { background: var(--primary); color: #fff; box-shadow: 0 0 0 3px rgba(14,74,38,.18); }
+.wf-step.now .lbl { color: var(--primary); font-weight: 700; }
+.wf-step.warn .dot { background: #c62828; box-shadow: 0 0 0 3px rgba(198,40,40,.18); }
+.wf-step.warn .lbl { color: #b91c1c; }
+.wf-step .lbl { margin-top: 4px; line-height: 1.15; }
+.wf-steps-compact .wf-step .dot { width: 18px; height: 18px; font-size: .6rem; }
+.wf-steps-compact .wf-step::before { top: 8px; height: 2px; }
+.wf-steps-compact .wf-step .lbl { font-size: .62rem; }
+
+/* ---- Trip board ---- */
+.trip-board { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+.trip-card { background: #fff; border: 1px solid var(--card-border); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: border-color .15s, box-shadow .15s; position: relative; }
+.trip-card:hover { border-color: var(--accent); box-shadow: 0 4px 14px rgba(14,74,38,.08); }
+.trip-card .tc-top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.trip-card .tc-ref { font-weight: 700; color: var(--primary); }
+.trip-card .tc-route { font-size: .84rem; margin: 4px 0 2px; }
+.trip-card .tc-meta { font-size: .76rem; color: var(--text-muted); display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.trip-card .tc-next { font-size: .76rem; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--card-border); color: #7a5600; }
+.trip-card.needs-me { border-left: 4px solid var(--accent); }
+.trip-card .tc-flags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.board-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.board-tools .form-control { max-width: 280px; }
+
+/* ---- Checklist ---- */
+.chk-sec { margin-bottom: 10px; }
+.chk-sec h6 { font-size: .78rem; text-transform: uppercase; color: var(--primary); margin: 10px 0 4px; }
+.chk-row { display: grid; grid-template-columns: 1fr auto minmax(120px, 30%); gap: 8px; align-items: center; font-size: .8rem; padding: 3px 0; border-bottom: 1px solid #f0f3f1; }
+.chk-row.bad { background: #fff1f1; }
+.chk-row .btn-group .btn { padding: 1px 8px; font-size: .72rem; }
+
+/* ---- Map ---- */
+.map-canvas { height: 280px; border-radius: 8px; border: 1px solid var(--card-border); }
+.map-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+.route-map { height: 220px; border-radius: 8px; border: 1px solid var(--card-border); margin-top: 8px; }
+.pin-icon i { font-size: 28px; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+
+/* ---- Missing requirement list ---- */
+.req-list { list-style: none; padding: 0; margin: 6px 0 0; font-size: .8rem; }
+.req-list li { padding: 2px 0; }
+.req-list li.ok { color: #15803d; }
+.req-list li.no { color: #b91c1c; }
+
+/* ---- Printable forms (company formats from PDF #13) ---- */
+@media print { .offcanvas, .offcanvas-backdrop, .modal, .modal-backdrop { display: none !important; } @page { margin: 12mm; } }
+.pf { font-family: Arial, Helvetica, sans-serif; font-size: 11.5px; color: #111; max-width: 780px; margin: 0 auto; }
+.pf-head { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid #111; padding-bottom: 8px; }
+.pf-logo { width: 62px; height: 40px; border: 2px solid #b71c1c; color: #b71c1c; font-weight: 900; font-size: 18px; display: flex; align-items: center; justify-content: center; border-radius: 50%; letter-spacing: 1px; }
+.pf-co { font-size: 17px; font-weight: 800; }
+.pf-addr { font-size: 11px; }
+.pf-no { margin-left: auto; font-size: 18px; font-weight: 700; color: #b71c1c; }
+.pf-title { text-align: center; font-size: 15px; font-weight: 800; letter-spacing: .08em; border: 1.5px solid #111; margin: 10px auto; padding: 4px 18px; width: fit-content; }
+.pf table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+.pf th, .pf td { border: 1px solid #333; padding: 4px 6px; vertical-align: top; text-align: left; }
+.pf th { background: #eee; font-size: 11px; }
+.pf td.num, .pf th.num { text-align: right; }
+.pf .pf-box { border: 1px solid #333; padding: 6px 8px; min-height: 60px; margin: 6px 0; white-space: pre-wrap; }
+.pf .pf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 18px; margin: 6px 0; }
+.pf .pf-grid div { border-bottom: 1px solid #555; padding: 2px 0; }
+.pf .pf-grid b { font-weight: 700; }
+.pf-signs { display: flex; justify-content: space-between; gap: 30px; margin-top: 28px; flex-wrap: wrap; }
+.pf-sign { flex: 1; min-width: 160px; text-align: center; }
+.pf-line { border-bottom: 1px solid #111; min-height: 30px; display: flex; align-items: flex-end; justify-content: center; font-weight: 700; }
+.pf-line img { max-height: 46px; }
+.pf-sl { font-size: 10px; margin-top: 2px; }
+.pf-foot { margin-top: 18px; font-size: 9px; color: #555; border-top: 1px solid #ccc; padding-top: 4px; }
+.pf .pf-note { font-size: 10px; margin: 6px 0; font-style: italic; }
+.pf .chk { display: inline-block; width: 11px; height: 11px; border: 1px solid #111; margin-right: 4px; vertical-align: middle; text-align: center; line-height: 10px; font-size: 10px; }

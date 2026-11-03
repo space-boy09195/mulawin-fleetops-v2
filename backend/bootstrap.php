@@ -100,6 +100,13 @@ function must(bool $condition, string $message, int $code = 400): void {
 // 4. INPUT HELPERS  (every value from the browser is checked here)
 // ---------------------------------------------------------------------
 function inputData(): array {
+    // Forms with files are sent as multipart/form-data: the normal fields are in
+    // the "payload" field (JSON) and the files are in $_FILES (see Core/Files.php).
+    if (str_starts_with(strtolower((string)($_SERVER['CONTENT_TYPE'] ?? '')), 'multipart/form-data')) {
+        $parsed = json_decode((string)($_POST['payload'] ?? '{}'), true);
+        must(is_array($parsed), 'Invalid request data.');
+        return $parsed;
+    }
     $raw = file_get_contents('php://input');
     $parsed = json_decode($raw ?: '{}', true);
     must(is_array($parsed), 'Invalid request data.');
@@ -211,8 +218,8 @@ function refNumber(string $prefix, int $id): string {
 
 // ---------------------------------------------------------------------
 // 6. ROLES AND CURRENT USER
-//    Role names follow the FMS PDF section I (User Roles).
-//    "admin" = Admin / Head Management (merged, per V2 scope note).
+//    Role names follow PDF #11 "User Roles and Access Requirements".
+//    "admin" = Admin / Head Management (Objective 4).
 // ---------------------------------------------------------------------
 const ROLE_LABELS = [
     'admin'                        => 'Admin (Head Management)',
@@ -223,7 +230,6 @@ const ROLE_LABELS = [
     'purchasing'                   => 'Purchasing Officer',
     'finance'                      => 'Finance',
     'billing'                      => 'Billing and Collection',
-    'payroll'                      => 'Payroll',
     'audit'                        => 'Audit',
 ];
 const TRUCK_TYPES = ['Car Carrier', 'Container', 'Wing Van'];
@@ -282,8 +288,21 @@ function transaction(callable $cb, ?PDO $connection = null): mixed {
     $p = $connection ?? db();
     if ($p->inTransaction()) return $cb($p);   // nested call: reuse the open transaction
     $p->beginTransaction();
-    try { $out = $cb($p); $p->commit(); return $out; }
-    catch (Throwable $e) { if ($p->inTransaction()) $p->rollBack(); throw $e; }
+    try { $out = $cb($p); $p->commit(); storedFiles(null, true); return $out; }
+    catch (Throwable $e) {
+        if ($p->inTransaction()) $p->rollBack();
+        // Files saved during the failed transaction are deleted too, so no orphan files remain.
+        foreach (storedFiles(null, true) as $f) @unlink($f);
+        throw $e;
+    }
+}
+/** Keeps the list of files saved during the current transaction (see Core/Files.php). */
+function storedFiles(?string $add = null, bool $reset = false): array {
+    static $list = [];
+    if ($add !== null) $list[] = $add;
+    $out = $list;
+    if ($reset) $list = [];
+    return $out;
 }
 
 /** Loads a core helper file once (backend/Core/Name.php). */

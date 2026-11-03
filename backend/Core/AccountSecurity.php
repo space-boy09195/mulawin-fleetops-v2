@@ -9,9 +9,6 @@
  *     Admin password, gamitin ito sa login page ("Forgot the Admin password?"). Isang beses lang gumagana.
  *  3. Kapag napalitan ang password (ng user, ng Admin o gamit ang recovery code), lahat ng lumang
  *     login session ng account na iyon ay mala-log out.
- *  4. Limit ng users bawat role (User Accounts > Limits per role). Dispatchers: bawat shift.
- *  Kailangan ang migration database/migrations/2026-11-04_account_security.sql sa existing na database.
- *  Kapag wala pa ang migration, gumagana pa rin ang login (walang lock at recovery hanggang ma-import).
  *  Huling paraan (IT / developer, may access sa server): php scripts/reset_password.php USERNAME
  * =====================================================================
  */
@@ -20,10 +17,6 @@ declare(strict_types=1);
 final class AccountSecurity {
     public const MAX_TRIES = 5;
     public const LOCK_MINUTES = 15;
-    /** Default na limit bawat role (0 = walang limit). Dispatchers: bawat shift (Day / Night). */
-    public const LIMIT_DEFAULTS = ['admin' => 1, 'operations_head' => 1, 'car_carrier_dispatcher' => 1, 'container_wingvan_dispatcher' => 1,
-        'motorpool' => 1, 'purchasing' => 1, 'finance' => 1, 'billing' => 1, 'payroll' => 1, 'audit' => 1];
-
     public static function now(): string { return date('Y-m-d H:i:s'); }
 
     public static function isLocked(array $row): bool {
@@ -72,43 +65,5 @@ final class AccountSecurity {
     public static function hasRecovery(int $id): ?bool {
         try { return !empty(one(db(), 'SELECT recovery_hash FROM users WHERE id=?', [$id])['recovery_hash']); }
         catch (Throwable $e) { return null; }
-    }
-
-    // ------------------------------------------------------------- limit bawat role
-    public static function limits(): array {
-        $out = self::LIMIT_DEFAULTS;
-        try {
-            foreach (many(db(), "SELECT setting_key, setting_value FROM app_settings WHERE setting_key LIKE 'role_limit_%'") as $r) {
-                $role = substr($r['setting_key'], 11);
-                if (isset($out[$role]) && is_numeric($r['setting_value'])) $out[$role] = max(0, (int)$r['setting_value']);
-            }
-        } catch (Throwable $e) { error_log('Role limits unavailable: ' . $e->getMessage()); }
-        $out['admin'] = max(1, $out['admin']);
-        return $out;
-    }
-
-    /** Bilang ng active na accounts bawat role, at bawat role+shift para sa dispatchers. */
-    public static function counts(PDO $p): array {
-        $c = [];
-        foreach (many($p, 'SELECT role, COALESCE(shift, \'\') AS shift, COUNT(*) n FROM users WHERE active=1 GROUP BY role, shift') as $r) {
-            $c[$r['role']] = ($c[$r['role']] ?? 0) + (int)$r['n'];
-            if ($r['shift'] !== '') $c[$r['role'] . '|' . $r['shift']] = (int)$r['n'];
-        }
-        return $c;
-    }
-
-    /** Hihinto kapag puno na ang role (o ang shift ng dispatcher). $excludeId = account na ine-edit. */
-    public static function checkSlot(PDO $p, string $role, ?string $shift, int $excludeId = 0): void {
-        $limit = self::limits()[$role] ?? 0;
-        if ($limit <= 0) return;
-        $label = ROLE_LABELS[$role] ?? $role;
-        if (roleIsDispatcher($role)) {
-            must((bool)$shift, 'Choose the shift (Day or Night) of the dispatcher.');
-            $n = (int)one($p, 'SELECT COUNT(*) n FROM users WHERE active=1 AND role=? AND shift=? AND id<>?', [$role, $shift, $excludeId])['n'];
-            must($n < $limit, "$label ($shift shift) already has $n active account(s). Limit: $limit per shift. Deactivate the old account first, or change the limit in User Accounts > Limits per role.", 409);
-            return;
-        }
-        $n = (int)one($p, 'SELECT COUNT(*) n FROM users WHERE active=1 AND role=? AND id<>?', [$role, $excludeId])['n'];
-        must($n < $limit, "$label already has $n active account(s). Limit: $limit. Deactivate the old account first, or change the limit in User Accounts > Limits per role.", 409);
     }
 }

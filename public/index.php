@@ -131,8 +131,8 @@ if (isset($_GET['api'])) {
 // ---------------- HTML shell ----------------
 // Each module script is separate: if one file fails, the other pages still work.
 // Screen files naka-grupo ayon sa department (public/assets/js/modules/<department>/<file>.js).
-$jsModules = ['general/dashboard', 'operations/fleet', 'operations/trips', 'maintenance/maintenance', 'maintenance/purchasing',
-              'accounting/finance', 'accounting/billing', 'accounting/payroll', 'general/documents', 'general/reports', 'administration/admin'];
+$jsModules = ['general/dashboard', 'operations/trips', 'operations/fleet', 'operations/clients', 'accounting/funds', 'maintenance/maintenance',
+              'maintenance/purchasing', 'accounting/billing', 'accounting/finance', 'general/documents', 'general/reports', 'administration/admin'];
 $v = static fn(string $f): string => is_file(__DIR__ . '/' . $f) ? (string)filemtime(__DIR__ . '/' . $f) : '1';
 ?><!doctype html>
 <html lang="en">
@@ -143,6 +143,7 @@ $v = static fn(string $f): string => is_file(__DIR__ . '/' . $f) ? (string)filem
   <title>Mulawin FleetOps — R.P. Mulawin Fleet Management System</title>
   <link rel="stylesheet" href="assets/vendor/bootstrap/css/bootstrap.min.css">
   <link rel="stylesheet" href="assets/vendor/bootstrap-icons/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="assets/vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="assets/css/layout.css?v=<?= $v('assets/css/layout.css') ?>">
   <link rel="stylesheet" href="assets/css/login.css?v=<?= $v('assets/css/login.css') ?>">
   <link rel="stylesheet" href="assets/css/app.css?v=<?= $v('assets/css/app.css') ?>">
@@ -152,10 +153,8 @@ $v = static fn(string $f): string => is_file(__DIR__ . '/' . $f) ? (string)filem
   <div class="toast-zone" id="toastZone" aria-live="polite"></div>
   <script src="assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
   <script src="assets/vendor/chartjs/chart.umd.min.js"></script>
+  <script src="assets/vendor/leaflet/leaflet.js"></script>
   <script src="assets/js/core.js?v=<?= $v('assets/js/core.js') ?>"></script>
-  <script src="assets/js/i18n.js?v=<?= $v('assets/js/i18n.js') ?>"></script>
-  <script src="assets/js/i18n/en.js?v=<?= $v('assets/js/i18n/en.js') ?>"></script>
-  <script src="assets/js/i18n/tl.js?v=<?= $v('assets/js/i18n/tl.js') ?>"></script>
 <?php foreach ($jsModules as $m): ?>
   <script src="assets/js/modules/<?= $m ?>.js?v=<?= $v('assets/js/modules/' . $m . '.js') ?>"></script>
 <?php endforeach; ?>

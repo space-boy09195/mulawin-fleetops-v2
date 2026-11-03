@@ -1,49 +1,48 @@
 <?php
 /*
  * =====================================================================
- *  backend/Core/BillingDraft.php  —  AUTOMATIC BILLING DRAFT
+ *  backend/Core/BillingDraft.php  —  automatic billing draft of a trip
  * =====================================================================
- *  Bagong FMS PDF v7 (Scenario A step 9 / Scenario B step 10, Billing and Collection):
- *    "Kapag ongoing ang trip, magccreate na ng billing draft si system
- *     (automation based sa route)."
- *  Tinatawag ito ng Trips sa Confirm Dispatch (doon nagiging ongoing ang trip).
- *  Ang rate ay galing sa client rate ng client + route + truck type (Billing > Client rates).
- *  Walang rate = draft pa rin, pero NULL ang rate at ilalagay ito ng Billing.
- *  Ang finalize (kapag Completed na at verified na ang documents) ay nasa Billing module.
+ *  PDF #12 step 10 (Confirmed Dispatch -> Billing Draft Generation):
+ *    billing amount = assigned client billing rate x confirmed billable
+ *    distance (+ applicable additional charges, added later by Billing).
+ *    The draft appears in the "Ongoing Trips" tab of Billing and is view-only
+ *    while the trip is ongoing.
+ *  PDF #12 step 12: when the trip is completed the draft moves to "For Billing".
+ *
+ *  base amount = MAX(distance_km x rate_per_km, minimum_charge)
  * =====================================================================
  */
 declare(strict_types=1);
 
 final class BillingDraft {
-    /**
-     * Gagawa ng draft para sa trip kung wala pa (isang draft bawat trip, kahit may Second Attempt).
-     * Hindi pinipigilan ang dispatch kapag pumalya ito: nakatala lang sa error log.
-     */
-    public static function createFor(PDO $p, array $t, ?int $uid): ?int {
-        try {
-            if (one($p, 'SELECT id FROM billing_drafts WHERE trip_id=?', [$t['id']])) return null;
-            $r = $t['truck_type'] ? one($p, "SELECT amount, rate_basis FROM client_rates WHERE client_id=? AND truck_type=? AND status='Active'
-                    AND (route_id=? OR route_id IS NULL) AND (effective_on IS NULL OR effective_on<=DATE(?))
-                  ORDER BY (route_id IS NULL), effective_on DESC, id DESC LIMIT 1",
-                [$t['client_id'], $t['truck_type'], $t['route_id'], $t['scheduled_at']]) : null;
-            $basis = $r['rate_basis'] ?? 'Per Trip';
-            $qty = match ($basis) {
-                'Per Unit' => max(1, (int)($t['units_planned'] ?? 1)),
-                'Per KM' => (float)($t['distance_km'] ?? 0),
-                default => 1,
-            };
-            $rate = $r ? (float)$r['amount'] : null;
-            $id = insert($p, 'billing_drafts', ['trip_id' => $t['id'], 'client_id' => $t['client_id'], 'rate_basis' => $basis,
-                'quantity' => $qty, 'rate' => $rate === null ? null : number_format($rate, 2, '.', ''),
-                'amount' => $rate === null ? null : number_format(round($rate * $qty, 2), 2, '.', ''),
-                'description' => cut($t['trip_ref'] . ' ' . ($t['origin'] ?? '') . ' - ' . ($t['destination'] ?? ''), 255)]);
-            audit($p, $uid, 'Billing', $t['trip_ref'], 'billing draft created by system',
-                $rate === null ? 'No client rate for this route yet; Billing will enter the rate.' : "$basis: PHP " . number_format($rate, 2) . ' x ' . $qty);
-            if (class_exists('Notify')) Notify::roles($p, ['billing'], 'Billing draft', 'Billing draft created for ' . $t['trip_ref'] . ' (trip is ongoing).', 'billing');
-            return $id;
-        } catch (Throwable $e) {
-            error_log('Billing draft for trip ' . ($t['id'] ?? '?') . ' failed: ' . $e->getMessage());
-            return null;
+    /** Creates (or refreshes, for a redispatch) the billing draft. Called at Confirm Dispatch. */
+    public static function createFor(PDO $p, array $trip): int {
+        $rate = one($p, 'SELECT rate_per_km, minimum_charge FROM client_rates WHERE client_id=? AND truck_type=?', [$trip['client_id'], $trip['truck_type']]);
+        must((bool)$rate, 'The client has no billing rate for ' . $trip['truck_type'] . '. Ask Billing to set it first.', 409);
+        $km = (float)$trip['distance_km'];
+        $base = round(max($km * (float)$rate['rate_per_km'], (float)$rate['minimum_charge']), 2);
+        $old = one($p, 'SELECT * FROM billings WHERE trip_id=? FOR UPDATE', [$trip['id']]);
+        if ($old) {
+            if (in_array($old['status'], ['Ongoing', 'Cancelled'], true)) {
+                run($p, "UPDATE billings SET status='Ongoing', distance_km=?, rate_per_km=?, minimum_charge=?, base_amount=?, total_amount=?+charges_total WHERE id=?",
+                    [$km, $rate['rate_per_km'], $rate['minimum_charge'], $base, $base, $old['id']]);
+            }
+            return (int)$old['id'];
         }
+        $id = insert($p, 'billings', ['trip_id' => $trip['id'], 'client_id' => $trip['client_id'], 'status' => 'Ongoing', 'distance_km' => $km,
+            'rate_per_km' => $rate['rate_per_km'], 'minimum_charge' => $rate['minimum_charge'], 'base_amount' => $base, 'total_amount' => $base]);
+        audit($p, null, 'Billing', 'billing ' . $id, 'billing draft generated', $trip['trip_ref'] . ': ' . $km . ' km x ' . $rate['rate_per_km'] . ' = ' . number_format($base, 2));
+        return $id;
+    }
+
+    /** Trip completed: the draft moves to For Billing. */
+    public static function forBilling(PDO $p, int $tripId): void {
+        run($p, "UPDATE billings SET status='For Billing' WHERE trip_id=? AND status='Ongoing'", [$tripId]);
+    }
+
+    /** Trip cancelled after a dispatch: the draft is cancelled. */
+    public static function cancel(PDO $p, int $tripId): void {
+        run($p, "UPDATE billings SET status='Cancelled' WHERE trip_id=? AND status IN ('Ongoing','For Billing')", [$tripId]);
     }
 }

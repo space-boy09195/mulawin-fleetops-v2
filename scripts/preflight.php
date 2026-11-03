@@ -26,7 +26,7 @@ foreach (array_keys(Actions::MODULES) as $m) {
 if (extension_loaded('pdo_mysql')) {
     try {
         $p = db();
-        foreach (['users', 'trips', 'fund_requests', 'inspections', 'maintenance_jobs', 'purchase_requests', 'billings', 'payroll_periods', 'documents', 'app_settings', 'formula_items'] as $t) {
+        foreach (['users', 'clients', 'client_rates', 'vehicles', 'personnel', 'trips', 'trip_assignments', 'fund_requests', 'inspections', 'incidents', 'maintenance_jobs', 'part_requests', 'purchase_orders', 'billings', 'collections', 'documents', 'app_settings', 'fund_categories'] as $t) {
             $p->query("SELECT 1 FROM `$t` LIMIT 1"); echo "PASS: table $t\n";
         }
     } catch (Throwable $e) { echo 'FAIL: database or schema: ' . $e->getMessage() . "\n"; $ready = false; }

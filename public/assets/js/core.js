@@ -4,7 +4,7 @@
    - App.start()        login / change password / main shell
    - App.page(id, def)  each module file registers its pages here
    - App.api(name, d)   POST to backend (Module.action)
-   - UI.*               tables, forms, modals, badges, charts, CSV
+   - UI.*               tables, forms, modals, filter modal, drawer, badges, charts, CSV, map
    MODULE ISOLATION: every page loads its own data. If a module file
    (assets/js/modules/<department>/*.js) or its backend fails, only that page shows
    an error; the sidebar and the other pages keep working.
@@ -38,6 +38,14 @@ const App = {
     const qs = new URLSearchParams({ api: 'data', page, ...query });
     return (await this.request('index.php?' + qs.toString())).data;
   },
+  /** POST with files: normal fields go in "payload" (JSON), files keep their input names. */
+  async apiForm(action, payload, form) {
+    const fd = new FormData();
+    fd.append('payload', JSON.stringify(payload || {}));
+    if (form) form.querySelectorAll('input[type=file][name]').forEach(inp => [...inp.files].forEach(f => fd.append(inp.name + (inp.multiple ? '[]' : ''), f)));
+    const r = await this.request('index.php?api=' + encodeURIComponent(action), { method: 'POST', headers: { 'X-CSRF-Token': this.csrf }, body: fd });
+    return r.data || {};
+  },
   async upload(formData) {
     formData.append('csrf', this.csrf);
     return (await this.request('index.php?api=document_upload', { method: 'POST', body: formData })).data;
@@ -45,8 +53,6 @@ const App = {
 
   // ---------------------------------------------------------------- start
   async start() {
-    // Wika: English muna (login screen); pagka-login, ang napili ng user (users.language).
-    if (typeof I18n !== 'undefined') I18n.start('en');
     try {
       const w = await this.request('index.php?api=whoami');
       this.csrf = w.csrf;
@@ -57,7 +63,6 @@ const App = {
   async loadMe() {
     const me = await this.request('index.php?api=me');
     this.me = me; this.csrf = me.csrf;
-    if (typeof I18n !== 'undefined') I18n.start(me.user.language);
     if (+me.user.must_change_password) return this.passwordScreen(true);
     this.shell();
     window.onhashchange = () => this.route();
@@ -73,7 +78,7 @@ const App = {
         <span class="visual-shape visual-shape--a"></span><span class="visual-shape visual-shape--b"></span>
         <div class="visual-content"><div class="brand-icon"><i class="bi bi-truck-front-fill"></i></div>
           <h2>Welcome to Mulawin FleetOps</h2>
-          <p>Fleet Management System of R.P. Mulawin Trucking: trips, dispatch, maintenance, billing, finance and payroll in one place.</p></div>
+          <p>Fleet Management System of R.P. Mulawin Trucking: trucks, drivers, clients, trips, maintenance, billing and finance in one place.</p></div>
       </aside>
       <div class="login-card">
         <div class="login-brand"><div class="brand-icon brand-icon--compact"><i class="bi bi-truck-front-fill"></i></div>
@@ -158,7 +163,7 @@ const App = {
         <p>Use it on the sign-in page: <b>Forgot the Admin password?</b> It works one time only. Keep this paper in a safe place (for example a sealed envelope with the owner).</p>
         <p style="font-size:12px;color:#555">Made on ${UI.esc(new Date().toLocaleString('en-PH'))}</p></div>`;
       UI.modal('Save this recovery code now', `<div class="alert alert-warning small">This code is shown only once. Print it or write it down, then keep it in a safe place.</div>
-        <div class="text-center display-6 fw-bold py-3 no-i18n" style="letter-spacing:3px">${UI.esc(code)}</div>`, null,
+        <div class="text-center display-6 fw-bold py-3" style="letter-spacing:3px">${UI.esc(code)}</div>`, null,
         { size: '', extraFooter: '<button type="button" class="btn btn-primary btn-sm" id="rcPrint"><i class="bi bi-printer"></i> Print</button>',
           onShow: (w) => { w.querySelector('#rcPrint').onclick = () => UI.print(sheet); } });
     }, { size: '', submit: 'Make a new code' });
@@ -195,18 +200,13 @@ const App = {
   // ---------------------------------------------------------------- shell (repo layout)
   shell() {
     const me = this.me, u = me.user;
-    const top = me.nav.filter(n => !n.section);
-    const bySection = {};
-    me.nav.filter(n => n.section).forEach(n => (bySection[n.section] = bySection[n.section] || []).push(n));
     const initials = (u.full_name || u.username).split(' ').filter(Boolean).map(s => s[0]).slice(0, 2).join('').toUpperCase();
-    const navLink = (n, cls) => `<a href="#${n.id}" class="${cls}" data-nav="${n.id}" title="${UI.esc(n.label)}"><i class="bi ${n.icon} nav-icon"></i><span class="nav-label">${UI.esc(n.label)}</span></a>`;
-    let sections = '';
-    Object.entries(me.sections).forEach(([name, icon]) => {
-      const items = bySection[name]; if (!items) return;
-      const id = 'sec' + name.replace(/[^A-Za-z]/g, '');
-      sections += `<section class="nav-section"><button class="nav-section-toggle collapsed" type="button" data-sec="${id}" title="${UI.esc(name)}">
-        <i class="bi ${icon} nav-section-icon"></i><span class="nav-section-label">${UI.esc(name)}</span><i class="bi bi-chevron-down nav-section-chevron"></i></button>
-        <div class="nav-section-items collapsed" id="${id}" hidden>${items.map(n => `<div class="nav-item">${navLink(n, 'nav-link')}</div>`).join('')}</div></section>`;
+    const navLink = (n) => `<a href="#${n.id}" class="nav-link flat-link" data-nav="${n.id}" title="${UI.esc(n.label)}"><i class="bi ${n.icon} nav-icon"></i><span class="nav-label">${UI.esc(n.label)}</span></a>`;
+    // One short menu: small headings only when the role has pages under them (no folding menus).
+    let nav = me.nav.filter(n => !n.section).map(navLink).join('');
+    (me.sections || []).forEach(sec => {
+      const items = me.nav.filter(n => n.section === sec); if (!items.length) return;
+      nav += `<div class="nav-heading">${UI.esc(sec)}</div>${items.map(navLink).join('')}`;
     });
     document.getElementById('app').innerHTML = `
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
@@ -214,11 +214,11 @@ const App = {
       <aside class="sidebar" id="appSidebar">
         <div class="sidebar-brand"><a href="#dashboard" class="sidebar-home-btn"><div class="sidebar-brand-icon"><i class="bi bi-truck-front-fill"></i></div></a>
           <div class="sidebar-brand-text"><div class="brand-title">FleetOps</div><div class="brand-sub">RP Mulawin Trucking</div></div></div>
-        <nav class="sidebar-nav">${top.map(n => navLink(n, 'sidebar-home-nav')).join('')}${sections}</nav>
+        <nav class="sidebar-nav flat-nav">${nav}</nav>
       </aside>
       <div class="main-wrapper">
         <header class="topnav no-print">
-          <button class="sidebar-toggle-btn" id="sidebarToggleBtn" type="button" title="Toggle sidebar"><i class="bi bi-list"></i></button>
+          <button class="sidebar-toggle-btn" id="sidebarToggleBtn" type="button" title="Show or hide the menu"><i class="bi bi-list"></i></button>
           <div class="topnav-breadcrumb"><a href="#dashboard" class="bc-home"><i class="bi bi-house"></i></a><i class="bi bi-chevron-right"></i><span class="bc-current" id="bcTitle">Dashboard</span></div>
           <div class="topnav-actions">
             <div class="dropdown"><button class="notif-btn" type="button" data-bs-toggle="dropdown" title="Notifications"><i class="bi bi-bell"></i>
@@ -230,9 +230,8 @@ const App = {
               <i class="bi bi-chevron-down profile-chevron"></i></button>
               <div class="dropdown-menu dropdown-menu-end profile-menu"><div class="profile-menu-user"><span class="profile-menu-name">${UI.esc(u.full_name)}</span>
                 <span class="profile-menu-role">${UI.esc(u.role_label)}${u.shift ? ' · ' + UI.esc(u.shift) + ' shift' : ''}</span></div>
-                <div class="dropdown-divider"></div><div class="dropdown-header small py-1">Language</div>
-                ${[['en', 'English'], ['tl', 'Tagalog']].map(([k, l]) => `<button class="dropdown-item lang-item" type="button" data-lang="${k}"><i class="bi ${(u.language || 'en') === k ? 'bi-check2' : 'bi-blank'} me-2"></i><span class="no-i18n">${l}</span></button>`).join('')}
                 <div class="dropdown-divider"></div><button class="dropdown-item" id="chgPw"><i class="bi bi-key me-2"></i>Change password</button>
+                ${['admin', 'finance'].includes(u.role) ? `<button class="dropdown-item" id="mySig"><i class="bi bi-pen me-2"></i>My e-signature${u.has_signature ? '' : ' (not set)'}</button>` : ''}
                 ${u.role === 'admin' ? '<button class="dropdown-item" id="recCode"><i class="bi bi-shield-lock me-2"></i>Recovery code</button>' : ''}
                 <button class="dropdown-item profile-logout" id="logoutBtn"><i class="bi bi-box-arrow-right me-2"></i>Log Out</button></div></div>
           </div>
@@ -240,14 +239,8 @@ const App = {
         <main class="page-content" id="pageContent"></main>
       </div>
     </div><button type="button" class="to-top no-print" id="toTop" title="Back to top"><i class="bi bi-arrow-up"></i></button><div id="printArea"></div>`;
-    // Accordion: isang section lang ang bukas para hindi mahaba ang sidebar.
-    document.querySelectorAll('[data-sec]').forEach(b => b.onclick = () => {
-      const box = document.getElementById(b.dataset.sec); this.openSection(box.hidden ? b.dataset.sec : null);
-    });
-    // Mahabang page: itago ang subtitle habang naka-scroll at ipakita ang "Back to top".
     document.getElementById('toTop').onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
     window.onscroll = () => {
-      // May pagitan (120 at 30) para hindi kumurap: lumiliit ang header kapag naka-scroll, kaya umiikli ang page.
       const cl = document.body.classList;
       if (window.scrollY > 120) cl.add('page-scrolled'); else if (window.scrollY < 30) cl.remove('page-scrolled');
       document.getElementById('toTop').classList.toggle('show', window.scrollY > 400);
@@ -261,22 +254,11 @@ const App = {
     document.getElementById('logoutBtn').onclick = () => { if (confirm('Log out of Mulawin FleetOps?')) this.logout(); };
     document.getElementById('chgPw').onclick = () => this.passwordScreen(false);
     document.getElementById('recCode')?.addEventListener('click', () => this.recoveryCode());
-    // Wika ng screen: naka-save sa account, kaya pareho saan mang computer o phone mag-login.
-    document.querySelectorAll('.lang-item').forEach(b => b.onclick = async () => {
-      if (b.dataset.lang === (this.me.user.language || 'en')) return;
-      try { await this.api('Admin.set_language', { language: b.dataset.lang }); location.reload(); }
-      catch (e) { UI.toast(e.message, 'error'); }
-    });
+    document.getElementById('mySig')?.addEventListener('click', () => UI.modal('My e-signature', `<p class="small text-muted">Upload a clear image (PNG or JPG) of your signature. It is printed on the purchase orders you approve.</p>
+      ${UI.fields([{ name: 'signature', label: 'Signature image', type: 'file', required: true, attrs: 'accept="image/png,image/jpeg"' }])}`,
+      async (d, form) => { const r = await App.apiForm('Admin.signature_upload', {}, form); UI.result(r); this.me.user.has_signature = true; }, { size: '', submit: 'Save signature' }));
     document.getElementById('bellClear').onclick = async (e) => { e.stopPropagation(); await this.api('Admin.notifications_read', {}); this.refreshBell(); };
     this.renderBell();
-  },
-
-  /** Bubuksan ang isang sidebar section at isasara ang iba (null = isara lahat). */
-  openSection(secId) {
-    document.querySelectorAll('[data-sec]').forEach(b => {
-      const box = document.getElementById(b.dataset.sec), open = b.dataset.sec === secId;
-      box.hidden = !open; b.classList.toggle('collapsed', !open); box.classList.toggle('collapsed', !open);
-    });
   },
 
   renderBell() {
@@ -307,9 +289,6 @@ const App = {
     if (!nav) return this.go('dashboard');
     this.current = { page, query };
     document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === page));
-    const link = document.querySelector(`[data-nav="${page}"]`);
-    const sec = link && link.closest('.nav-section-items');
-    this.openSection(sec ? sec.id : null);
     document.getElementById('appSidebar').classList.remove('mobile-open'); document.getElementById('sidebarOverlay').classList.remove('active');
     document.getElementById('bcTitle').textContent = nav.label;
     const el = document.getElementById('pageContent');
@@ -325,7 +304,13 @@ const App = {
     el.innerHTML = `<div class="page-header page-header-sticky d-flex justify-content-between align-items-start flex-wrap gap-2">
         <div><div class="page-title">${UI.esc(def.title || nav.label)}</div><div class="page-subtitle">${UI.esc(def.subtitle || '')}</div></div>
         <div class="d-flex gap-2 no-print" id="pageTools"></div></div><div id="pageBody" class="${work ? 'work-page' : ''}"><div class="text-muted p-4"><span class="spinner-border spinner-border-sm me-2"></span>Loading…</div></div>`;
-    if (this._lastPage !== page) window.scrollTo(0, 0); // bagong page lang; hindi kapag nag-reload pagka-save
+    if (this._lastPage !== page) {
+      window.scrollTo(0, 0); // only for a new page, not when the same page reloads after a save
+      // A details drawer belongs to its page: close it when the user moves to another page.
+      document.querySelectorAll('.offcanvas.app-drawer').forEach(o => { bootstrap.Offcanvas.getInstance(o)?.hide(); o.remove(); });
+      document.querySelectorAll('.offcanvas-backdrop').forEach(x => x.remove());
+      document.body.style.removeProperty('overflow'); document.body.style.removeProperty('padding-right');
+    }
     this._lastPage = page;
     const body = document.getElementById('pageBody');
     const ctx = { page, query, el: body, tools: document.getElementById('pageTools'), me: this.me, data: null,
@@ -361,10 +346,10 @@ UI.isDispatcher = () => UI.role('car_carrier_dispatcher', 'container_wingvan_dis
 /** Status colors (same meaning everywhere). */
 UI.badgeColor = (s) => {
   const v = String(s || '');
-  if (/^(Available|Completed|Paid|Approved|Released|Liquidated|Present|Issued|Received|Active|OK|Resolved|Disbursed|Stock In|Contribution|Repaired - Cleared to Continue)$/.test(v)) return 'green';
-  if (/^(Assigned|Pre-Assigned|Ready for Dispatch|Dispatched|In Transit|In Progress|On Trip|Ready for Release|Ordered|Finalized|Submitted to Finance|Scheduled|Partially Paid|Stock Out|Payment)$/.test(v)) return 'blue';
-  if (/^(Pending Approval|Pending Review|Awaiting Resources|Under Repair|Requested|Waiting for Parts|Reported|Draft|Returned|Not Liquidated|Open|Minor|Adjustment|Prepared|Issued Invoice|Client|Pending Documents|VL|SIL|Charge)$/.test(v)) return 'amber';
-  if (/(Under Maintenance|On Hold|For Reschedule|Rejected|Cancelled|Rescheduled|Not Available|Unavailable|Major|Absent|Overdue|Resigned|Inactive)/.test(v)) return 'red';
+  if (/^(Available|Completed|Paid|Approved|Released|Liquidated|Received|Active|OK|Resolved|Repaired - Cleared to Continue)$/.test(v)) return 'green';
+  if (/^(Assigned|Pre-Assigned|Ready for Dispatch|Dispatched|In Transit|On Trip|Ready for Release|Ongoing|Invoiced|For Billing|Partially Paid|Partially Released|Partially Received|Stock Out|Pending Payment)$/.test(v)) return 'blue';
+  if (/^(Pending Approval|Pending Review|Pending Rate|Awaiting Resources|Under Repair|Requested|Reported|Not Liquidated|Minor|Adjustment|Incomplete|Unpaid|Closed)$/.test(v)) return 'amber';
+  if (/(Under Maintenance|On Hold|For Reschedule|Rejected|Cancelled|Not Available|Unavailable|Major|Overdue|Inactive|Delayed|Insufficient)/.test(v)) return 'red';
   return '';
 };
 UI.badge = (s) => s === null || s === undefined || s === '' ? '—' : `<span class="badge-s ${UI.badgeColor(s)}">${UI.esc(s)}</span>`;
@@ -561,7 +546,8 @@ UI.formModal = (title, fields, action, opts = {}) => UI.modal(title, (opts.intro
   if (opts.after) opts.after(r); else App.route();
 }, opts);
 UI.confirmAction = (title, text, action, payload, opts = {}) => UI.modal(title, `<p>${text}</p>${opts.fields ? UI.fields(opts.fields) : ''}`, async (d) => {
-  const r = await App.api(action, { ...payload, ...d }); UI.result(r); App.route();
+  const r = await App.api(action, { ...payload, ...d }); UI.result(r);
+  if (opts.after) opts.after(r); else { UI.closeDrawer(); App.route(); }
 }, { size: '', submit: opts.submit || 'Confirm', danger: opts.danger });
 
 /**
@@ -601,12 +587,11 @@ UI.groupTabs = (root, groups, opts = {}) => {
 
 // ------------------------------------------------------------------ charts (Chart.js, repo colors)
 UI.palette = ['#0e4a26', '#c78c00', '#3b82f6', '#66b878', '#c62828', '#8d6400', '#7c3aed', '#0891b2', '#64748b', '#f59e0b'];
-/** Iisang kulay bawat kahulugan sa lahat ng chart (status, pera, payroll, aging, truck type). */
+/** One color per meaning in every chart (status, money, aging, truck type). */
 UI.meaningColors = {
   'Available': '#15803d', 'On Trip': '#2563eb', 'Under Maintenance': '#c62828', 'Unavailable': '#94a3b8',
   'Billed': '#2563eb', 'Collected': '#15803d', 'Expenses': '#c62828',
   'Cash in (collections)': '#15803d', 'Cash out (disbursements)': '#c62828',
-  'Gross': '#2563eb', 'Deductions': '#c62828', 'Net': '#15803d',
   'All trips': '#0e4a26', 'Trips': '#0e4a26', 'Completed': '#66b878', 'Completed trips': '#66b878',
   'Parts': '#0891b2', 'Labor': '#c78c00', 'Other': '#64748b',
   'Not yet due': '#15803d', '1-30 days': '#f59e0b', '31-60 days': '#ea580c', '61-90 days': '#c62828', 'Over 90 days': '#7f1d1d',
@@ -757,10 +742,9 @@ UI.breakdown = (lines, total, totalLabel = 'Total') => `<table class="breakdown 
   <tr class="total"><td colspan="2">${UI.esc(totalLabel)}</td><td class="num">${UI.money(total)}</td></tr></table>`;
 
 /**
- * Fund Request form (bagong FMS PDF Scenario A step 3 / B step 4).
- * Pipili ang dispatcher ng preset categories (may naka-set na halaga) at pwedeng
- * magdagdag ng ibang category. Ang total ay kino-compute habang pumipili; ang
- * server pa rin ang kumukuha ng tunay na preset amount.
+ * Fund Request form (PDF #12 Scenario A step 4 / B step 4).
+ * The dispatcher picks the preset categories and may add other categories.
+ * The total is shown while choosing; the server still takes the real preset amounts.
  * opts: { title, categories:[{name, amount}], selected:[names], extra:[{name, amount}], notes, action, payload, intro }
  */
 UI.fundForm = (opts) => {
@@ -768,7 +752,7 @@ UI.fundForm = (opts) => {
   const extra = (opts.extra || []).concat(Array(Math.max(0, 3 - (opts.extra || []).length)).fill({ name: '', amount: '' }));
   const cats = (opts.categories || []).map((c, i) => `<label class="d-flex justify-content-between border rounded px-2 py-1 mb-1">
       <span><input type="checkbox" class="form-check-input me-2 fund-cat" data-name="${UI.esc(c.name)}" data-amount="${+c.amount}" ${sel.has(c.name) ? 'checked' : ''}>${UI.esc(c.name)}</span>
-      <span class="num">${UI.money(c.amount)}</span></label>`).join('') || '<div class="text-muted small">No preset categories yet. Ask Admin or Finance to add them in Formula Settings.</div>';
+      <span class="num">${UI.money(c.amount)}</span></label>`).join('') || '<div class="text-muted small">No preset categories yet. Ask the Admin to add them in Administration > Settings.</div>';
   const rows = extra.map((l, i) => `<div class="row g-2 mb-1 fund-extra">
       <div class="col-8"><input class="form-control form-control-sm" maxlength="80" placeholder="Other expense category" value="${UI.esc(l.name || '')}"></div>
       <div class="col-4"><input class="form-control form-control-sm" type="number" min="0" step="0.01" placeholder="Amount" value="${l.amount === '' ? '' : +l.amount}"></div></div>`).join('');
@@ -782,7 +766,7 @@ UI.fundForm = (opts) => {
     const extraLines = [...form.querySelectorAll('.fund-extra')].map(r => { const [n, a] = r.querySelectorAll('input'); return { name: n.value.trim(), amount: a.value }; }).filter(x => x.name || x.amount);
     if (!categories.length && !extraLines.length) throw new Error('Choose at least one fund category.');
     const r = await App.api(opts.action, { ...opts.payload, categories, extra: extraLines, notes: d.notes || '' });
-    UI.result(r); App.route();
+    UI.result(r); if (opts.after) opts.after(r); else App.route();
   }, { submit: 'Submit Fund Request', onShow(w) {
     const total = () => {
       let t = 0;
@@ -823,3 +807,158 @@ UI.printReport = (sections, meta = {}) => {
 /** Options helpers for selects. */
 UI.opts = (rows, labelFn, valueKey = 'id') => (rows || []).map(r => [r[valueKey], labelFn(r)]);
 UI.list = (arr) => (arr || []).map(x => [x, x]);
+
+// ------------------------------------------------------------------ helpers added in the revision
+/** Form modal that also sends the files of the form (uses App.apiForm). */
+UI.formModalFiles = (title, fields, action, opts = {}) => UI.modal(title, (opts.intro ? `<div class="small text-muted mb-2">${opts.intro}</div>` : '') + UI.fields(fields), async (d, form, wrap) => {
+  const payload = opts.transform ? opts.transform(d, form, wrap) : d;
+  const r = await App.apiForm(action, { ...(opts.extra || {}), ...payload }, form);
+  UI.result(r);
+  if (opts.after) opts.after(r); else App.route();
+}, opts);
+
+/**
+ * ONE simple filter modal per list (no permanent filter bar).
+ * fields: same format as UI.fields; values come from the page query.
+ * Returns a small bar: [Filter] button, the active filters as chips, and Reset.
+ */
+UI.filterModal = (ctx, fields, opts = {}) => {
+  const id = 'flt' + Math.random().toString(36).slice(2, 8);
+  const keys = fields.map(f => f.name);
+  const active = keys.filter(k => ctx.query[k]);
+  const reset = () => { const q = { ...ctx.query }; keys.forEach(k => delete q[k]); App.go(ctx.page, q); };
+  const open = () => {
+    const wrap = UI.modal('Filter', UI.fields(fields.map(f => ({ ...f, value: ctx.query[f.name] ?? '' }))) + (opts.note ? `<div class="form-help mt-2">${UI.esc(opts.note)}</div>` : ''), async (d) => {
+      const q = { ...ctx.query }; keys.forEach(k => { if (d[k]) q[k] = d[k]; else delete q[k]; });
+      App.go(ctx.page, q);
+    }, { size: '', submit: 'Apply', extraFooter: '<button type="button" class="btn btn-outline-danger btn-sm me-auto" data-freset>Reset</button>' });
+    wrap.querySelector('[data-freset]').onclick = () => { bootstrap.Modal.getInstance(wrap).hide(); reset(); };
+  };
+  const label = (k) => { const f = fields.find(x => x.name === k); const o = (f.options || []).find(o => String(Array.isArray(o) ? o[0] : o) === String(ctx.query[k])); return `${f.label}: ${o ? (Array.isArray(o) ? o[1] : o) : ctx.query[k]}`; };
+  UI._filters[id] = { open, reset };
+  return `<div class="filter-summary" data-fid="${id}"><button type="button" class="btn btn-sm btn-outline-secondary" data-fopen><i class="bi bi-funnel"></i> Filter${active.length ? ` <span class="badge bg-warning text-dark">${active.length}</span>` : ''}</button>
+    ${active.length ? active.map(k => `<span class="filter-chip">${UI.esc(label(k))}</span>`).join('') + '<button type="button" class="btn btn-link btn-sm p-0 ms-1" data-fclear>Reset</button>' : `<span>${UI.esc(opts.hint || 'Showing all records.')}</span>`}</div>`;
+};
+
+UI._filters = {};
+// One listener for every filter bar (works even when the bar is drawn later inside a tab).
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-fopen],[data-fclear]'); if (!b) return;
+  const f = UI._filters[b.closest('[data-fid]')?.dataset.fid]; if (!f) return;
+  if (b.hasAttribute('data-fopen')) f.open(); else f.reset();
+});
+
+/** Side drawer for record details (Bootstrap offcanvas). */
+UI.drawer = (title, html, opts = {}) => {
+  // Re-use the open drawer (refresh its content) so backdrops never stack up.
+  let el = document.querySelector('.offcanvas.app-drawer');
+  const head = `<div><h5 class="offcanvas-title mb-0">${title}</h5>${opts.subtitle ? `<div class="small text-muted">${opts.subtitle}</div>` : ''}</div>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>`;
+  if (el) {
+    el.querySelector('.offcanvas-header').innerHTML = head;
+    el.querySelector('.offcanvas-body').innerHTML = html;
+    el.querySelector('.offcanvas-body').scrollTop = 0;
+    if (!el.classList.contains('show')) bootstrap.Offcanvas.getOrCreateInstance(el).show();
+  } else {
+    el = document.createElement('div');
+    el.className = 'offcanvas offcanvas-end app-drawer'; el.tabIndex = -1;
+    el.innerHTML = `<div class="offcanvas-header">${head}</div><div class="offcanvas-body">${html}</div>`;
+    document.body.append(el);
+    bootstrap.Offcanvas.getOrCreateInstance(el).show();
+    el.addEventListener('hidden.bs.offcanvas', () => el.remove());
+  }
+  UI.activate(el);
+  if (opts.onShow) opts.onShow(el);
+  return el;
+};
+UI.closeDrawer = () => document.querySelectorAll('.offcanvas.app-drawer').forEach(o => bootstrap.Offcanvas.getInstance(o)?.hide());
+
+/** Progress stepper: stages = [labels], current = index, opts.warn = text shown in red. */
+UI.steps = (stages, current, opts = {}) => `<div class="wf-steps ${opts.compact ? 'wf-steps-compact' : ''}">${stages.map((s, i) => `<div class="wf-step ${i < current ? 'done' : ''} ${i === current ? 'now' : ''} ${i === current && opts.warn ? 'warn' : ''}">
+    <span class="dot">${i < current ? '<i class="bi bi-check"></i>' : i + 1}</span><span class="lbl">${UI.esc(s)}</span></div>`).join('')}</div>`;
+
+/** Label / value grid. pairs = [[label, html], ...] (values are already escaped / formatted). */
+UI.kv = (pairs) => `<dl class="kv">${pairs.filter(Boolean).map(([k, v]) => `<dt>${UI.esc(k)}</dt><dd>${v === null || v === undefined || v === '' ? '—' : v}</dd>`).join('')}</dl>`;
+UI.e = (v) => (v === null || v === undefined || v === '') ? '—' : UI.esc(v);
+
+/** List of documents with view / download links. */
+UI.docUrl = (id, inline = true) => 'index.php?api=document_download&id=' + encodeURIComponent(id) + (inline ? '&inline=1' : '');
+UI.docs = (list, empty = 'No documents attached.') => (list || []).length ? `<ul class="doc-list">${list.map(d => `<li><i class="bi ${String(d.mime_type || '').startsWith('image') ? 'bi-file-image' : 'bi-file-pdf'}"></i>
+    <div><a href="${UI.docUrl(d.id)}" target="_blank" rel="noopener">${UI.esc(d.original_filename)}</a><div class="small text-muted">${UI.esc(d.category)}${d.for ? ' · ' + UI.esc(d.for) : ''} · ${UI.datetime(d.created_at)}${d.uploader ? ' · ' + UI.esc(d.uploader) : ''}</div></div></li>`).join('')}</ul>`
+  : `<div class="text-muted small">${UI.esc(empty)}</div>`;
+
+/** Section heading inside drawers. */
+UI.h = (text, extra = '') => `<div class="drawer-h"><span>${UI.esc(text)}</span>${extra}</div>`;
+
+/** Printable form with the company header used on every printout (PDF #13 formats). */
+UI.printForm = (title, body, opts = {}) => {
+  const co = App.me.company || {};
+  UI.print(`<div class="pf"><div class="pf-head"><div class="pf-logo">RPM</div><div><div class="pf-co">${UI.esc(co.name || 'R P MULAWIN TRUCKING SERVICE')}</div>
+    <div class="pf-addr">${UI.esc(co.address || '')}</div></div>${opts.number ? `<div class="pf-no">${UI.esc(opts.number)}</div>` : ''}</div>
+    <div class="pf-title">${UI.esc(title)}</div>${body}
+    <div class="pf-foot">Printed from Mulawin FleetOps by ${UI.esc(App.me.user.full_name)} on ${UI.esc(new Date().toLocaleString('en-PH'))}</div></div>`);
+};
+UI.sign = (label, name = '') => `<div class="pf-sign"><div class="pf-line">${UI.esc(name)}</div><div class="pf-sl">${UI.esc(label)}</div></div>`;
+
+/**
+ * Map with two pins (pickup and delivery) using Leaflet + OpenStreetMap.
+ * Click the map to place the active pin; pins can be dragged. Shows the straight-line
+ * km for visuals; the billable km is still typed by the user (PDF #12 Scenario A step 3).
+ * box: element; form: the form with pickup_lat/lng, delivery_lat/lng inputs.
+ */
+UI.mapPicker = (box, form, initial = {}) => {
+  if (typeof L === 'undefined') { box.innerHTML = '<div class="table-empty small">The map library did not load. Type the places and the km.</div>'; return; }
+  box.innerHTML = `<div class="map-tools"><div class="btn-group btn-group-sm"><button type="button" class="btn btn-success active" data-pin="pickup"><i class="bi bi-geo-alt-fill"></i> Set pickup point</button>
+    <button type="button" class="btn btn-outline-danger" data-pin="delivery"><i class="bi bi-geo-fill"></i> Set delivery point</button></div>
+    <span class="small text-muted" data-mapinfo>Click the map to pin the pickup point.</span></div><div class="map-canvas"></div>
+    <div class="small mt-1 d-flex justify-content-between flex-wrap gap-2"><span class="text-muted">Map distance is a straight line, for visuals only. Type the actual billable km.</span><a href="#" target="_blank" rel="noopener" data-gmaps class="d-none"><i class="bi bi-box-arrow-up-right"></i> Road distance in Google Maps</a></div>`;
+  const map = L.map(box.querySelector('.map-canvas')).setView([14.35, 121.0], 9);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  const icon = (c) => L.divIcon({ className: 'pin-icon', html: `<i class="bi bi-geo-alt-fill" style="color:${c}"></i>`, iconSize: [28, 28], iconAnchor: [14, 28] });
+  const pins = {}; let active = 'pickup'; let line = null;
+  const info = box.querySelector('[data-mapinfo]'), gm = box.querySelector('[data-gmaps]');
+  const field = (n) => form.querySelector(`[name="${n}"]`);
+  const update = () => {
+    ['pickup', 'delivery'].forEach(k => { const p = pins[k]?.getLatLng(); if (field(k + '_lat')) { field(k + '_lat').value = p ? p.lat.toFixed(7) : ''; field(k + '_lng').value = p ? p.lng.toFixed(7) : ''; } });
+    if (line) { line.remove(); line = null; }
+    if (pins.pickup && pins.delivery) {
+      const a = pins.pickup.getLatLng(), b = pins.delivery.getLatLng();
+      line = L.polyline([a, b], { color: '#c78c00', dashArray: '6 6' }).addTo(map);
+      info.textContent = `Straight-line distance: ${(a.distanceTo(b) / 1000).toFixed(1)} km`;
+      gm.href = `https://www.google.com/maps/dir/?api=1&origin=${a.lat},${a.lng}&destination=${b.lat},${b.lng}&travelmode=driving`; gm.classList.remove('d-none');
+    }
+  };
+  const place = (k, latlng) => {
+    if (pins[k]) pins[k].setLatLng(latlng);
+    else { pins[k] = L.marker(latlng, { draggable: true, icon: icon(k === 'pickup' ? '#15803d' : '#c62828') }).addTo(map).bindTooltip(k === 'pickup' ? 'Pickup' : 'Delivery'); pins[k].on('dragend', update); }
+    update();
+  };
+  const setActive = (k) => { active = k; box.querySelectorAll('[data-pin]').forEach(b => { const on = b.dataset.pin === k; b.classList.toggle('active', on);
+      b.className = 'btn btn-sm ' + (b.dataset.pin === 'pickup' ? (on ? 'btn-success' : 'btn-outline-success') : (on ? 'btn-danger' : 'btn-outline-danger')) + (on ? ' active' : ''); });
+    info.textContent = `Click the map to pin the ${k} point.`; };
+  box.querySelectorAll('[data-pin]').forEach(b => b.onclick = () => setActive(b.dataset.pin));
+  map.on('click', (e) => { place(active, e.latlng); if (active === 'pickup' && !pins.delivery) setActive('delivery'); });
+  if (initial.pickup_lat) place('pickup', [+initial.pickup_lat, +initial.pickup_lng]);
+  if (initial.delivery_lat) place('delivery', [+initial.delivery_lat, +initial.delivery_lng]);
+  if (pins.pickup && pins.delivery) map.fitBounds(L.latLngBounds([pins.pickup.getLatLng(), pins.delivery.getLatLng()]).pad(0.3));
+  setTimeout(() => map.invalidateSize(), 300);
+  return map;
+};
+/** Read-only route map (trip details). */
+UI.routeMap = (box, t) => {
+  if (typeof L === 'undefined' || !t.pickup_lat || !t.delivery_lat) { box.innerHTML = ''; box.classList.add('d-none'); return; }
+  const map = L.map(box, { scrollWheelZoom: false });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  const a = [+t.pickup_lat, +t.pickup_lng], b = [+t.delivery_lat, +t.delivery_lng];
+  L.marker(a).addTo(map).bindTooltip('Pickup: ' + t.pickup_point); L.marker(b).addTo(map).bindTooltip('Delivery: ' + t.delivery_point);
+  L.polyline([a, b], { color: '#c78c00', dashArray: '6 6' }).addTo(map);
+  map.fitBounds(L.latLngBounds([a, b]).pad(0.3)); setTimeout(() => map.invalidateSize(), 300);
+};
+
+/** Payment fields used by Finance and Billing. */
+UI.payFields = (methods, dateName = 'released_on', dateLabel = 'Release date') => [
+  { name: 'payment_method', label: 'Payment method', type: 'select', options: UI.list(methods), required: true, col: 6 },
+  { name: dateName, label: dateLabel, type: 'date', value: UI.today(), required: true, col: 6 },
+  { name: 'reference_number', label: 'Reference no. (bank / e-wallet)', col: 4 },
+  { name: 'cheque_number', label: 'Cheque no.', col: 4 }, { name: 'bank_name', label: 'Bank', col: 4 },
+];

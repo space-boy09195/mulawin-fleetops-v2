@@ -1,307 +1,376 @@
 <?php
 /*
  * =====================================================================
- *  backend/Modules/Maintenance/Maintenance.php  —  VEHICLE MAINTENANCE (Motorpool)
+ *  backend/Modules/Maintenance/Maintenance.php  —  CORRECTIVE MAINTENANCE
  * =====================================================================
- *  FMS PDF II.L and pp.17-18 (Maintenance module):
- *    - Incident reports appear here automatically (Trips module).
- *    - Bagong PDF Scenario C: ang Maintenance ang nag-a-assess kung Minor
- *      o Major ang sira (assess). Minor: mekaniko sa lugar, tapos
- *      "Repaired - Cleared to Continue". Major: truck Under Maintenance,
- *      trip For Reschedule, ayusin, tapos Available ulit.
- *    - Suggested process: record issue -> vehicle -> photos/documents ->
- *      activity -> parts and materials used -> costs -> status ->
- *      completion and return the vehicle to Available.
- *    - Motorpool requests parts from Purchasing (stock-out request).
- *    - Preventive maintenance: by kilometers (automatic) or by schedule.
- *    - Operations Head sees trucks under maintenance and when they are
- *      expected to be available.
+ *  Objective 2.1  maintenance records (findings, problems, repair activities,
+ *                 parts used, repair dates, costs, documents)
+ *  Objective 2.2  repairs from trip incident reports + truck availability
+ *  Objective 2.3  on-premise repairs (inspection, repair, completion, verification)
+ *  Objective 2.6  monitoring of ongoing and completed repairs
+ *
+ *  Corrective maintenance = an unexpected truck problem that needs inspection,
+ *  diagnosis and repair. (There is no monthly preventive maintenance.)
+ *
+ *  Workflow (Motorpool Custodian):
+ *    Reported          problem reported (garage) or incident reported (dispatcher)
+ *    Under Inspection  an Available mechanic from the Mechanic Masterlist is assigned
+ *                      (incidents: Minor / Major assessment happens here too)
+ *    Under Repair      inspection findings and diagnosis recorded
+ *    Completed         corrective action, completion date and evidence recorded;
+ *                      the mechanic becomes free again
+ *    Verify & return   operational check passed -> ONLY NOW the truck is available
+ *    Cancelled         garage report made by mistake (no parts released)
+ *
+ *  Truck availability: a truck with an unresolved record is Under Maintenance and
+ *  cannot be assigned (a Minor roadside repair keeps it On Trip). Trips that had the
+ *  truck reserved are re-assigned automatically. Database rules: one unresolved
+ *  record per truck, one active repair per mechanic.
  * =====================================================================
  */
 declare(strict_types=1);
 core('FleetState');
-core('Settings');
 core('Notify');
+core('Files');
+core('Money');
 
 final class Maintenance {
-    public const JOB_STATUSES = ['Reported', 'Scheduled', 'In Progress', 'Waiting for Parts'];
+    private const ACT = ['motorpool'];
+    public const COST_TYPES = ['Labor', 'Outside Service', 'Materials', 'Other'];
+    public const PRIORITIES = ['Low', 'Normal', 'High', 'Critical'];
+    public const ACTIVE = ['Reported', 'Under Inspection', 'Under Repair'];
 
     public static function read(array $u, string $page, array $q): array {
         $p = db();
         $data = readSections([
-            'jobs' => fn() => many($p, "SELECT m.*, v.plate_number, v.truck_type, v.status AS vehicle_status, i.severity, i.status AS incident_status,
-                    i.location AS incident_location, i.problem AS incident_problem, i.incident_at, t.trip_ref, t.status AS trip_status,
-                    us.full_name AS created_by_name,
-                    (SELECT COALESCE(SUM(mu.quantity*mu.unit_cost),0) FROM maintenance_parts_used mu WHERE mu.maintenance_job_id=m.id) AS parts_cost,
-                    (SELECT COALESCE(SUM(mc.amount),0) FROM maintenance_costs mc WHERE mc.maintenance_job_id=m.id) AS other_cost
-                FROM maintenance_jobs m JOIN vehicles v ON v.id=m.vehicle_id LEFT JOIN incidents i ON i.id=m.incident_id
-                LEFT JOIN trips t ON t.id=m.trip_id LEFT JOIN users us ON us.id=m.created_by
-                ORDER BY FIELD(m.status,'Reported','In Progress','Waiting for Parts','Scheduled','Completed','Cancelled'), m.id DESC LIMIT 500"),
-            'schedules' => fn() => many($p, "SELECT s.*, v.plate_number, v.odometer_km, v.km_since_pm FROM maintenance_schedules s JOIN vehicles v ON v.id=s.vehicle_id
-                ORDER BY FIELD(s.status,'Scheduled','Completed','Cancelled'), s.due_on IS NULL, s.due_on, s.id DESC LIMIT 300"),
-            'vehicles' => fn() => many($p, "SELECT v.id, v.plate_number, v.truck_type, v.status, v.odometer_km, v.km_since_pm,
-                    (SELECT MAX(m.expected_completion) FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.status NOT IN ('Completed','Cancelled')) AS expected_available
+            'jobs' => fn() => many($p, "SELECT m.id, m.job_ref, m.vehicle_id, m.source, m.problem, m.reported_on, m.priority, m.severity, m.status, m.mechanic_id, m.trip_id, m.incident_id,
+                    m.expected_completion, m.completed_on, m.verified_at, m.created_at, mc.full_name AS mechanic, mc.mechanic_code,
+                    v.plate_number, v.truck_number, v.truck_type, v.status AS truck_status,
+                    i.incident_ref, i.status AS incident_status, t.trip_ref, t.status AS trip_status,
+                    (SELECT COALESCE(SUM(c.amount),0) FROM maintenance_costs c WHERE c.maintenance_job_id=m.id) AS other_cost,
+                    (SELECT COALESCE(SUM(l.released_qty*l.unit_cost),0) FROM part_request_lines l JOIN part_requests r ON r.id=l.part_request_id WHERE r.maintenance_job_id=m.id) AS parts_cost
+                FROM maintenance_jobs m JOIN vehicles v ON v.id=m.vehicle_id LEFT JOIN mechanics mc ON mc.id=m.mechanic_id
+                LEFT JOIN incidents i ON i.id=m.incident_id LEFT JOIN trips t ON t.id=m.trip_id
+                ORDER BY FIELD(m.status,'Reported','Under Inspection','Under Repair','Completed','Cancelled'), FIELD(m.priority,'Critical','High','Normal','Low'), m.id DESC LIMIT 1000"),
+            'trucks' => fn() => many($p, "SELECT v.id, v.plate_number, v.truck_number, v.truck_type, v.status,
+                    (SELECT m.job_ref FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.open_key=1 LIMIT 1) AS open_job,
+                    (SELECT t.trip_ref FROM trip_assignments a JOIN trips t ON t.id=a.trip_id WHERE a.resource_type='vehicle' AND a.resource_id=v.id AND t.status IN ('Dispatched','On Hold - Incident Reported','In Transit') LIMIT 1) AS on_road
                 FROM vehicles v WHERE v.active=1 ORDER BY v.plate_number"),
-            'partsUsed' => fn() => many($p, 'SELECT mu.*, pa.part_number, pa.description FROM maintenance_parts_used mu JOIN parts pa ON pa.id=mu.part_id ORDER BY mu.id DESC LIMIT 500'),
-            'costs' => fn() => many($p, 'SELECT * FROM maintenance_costs ORDER BY id DESC LIMIT 500'),
-            'partRequests' => fn() => many($p, 'SELECT pr.*, pa.part_number, pa.description, pa.quantity_on_hand, pa.unit, v.plate_number,
-                    (SELECT COALESCE(SUM(mu.quantity),0) FROM maintenance_parts_used mu WHERE mu.part_request_id=pr.id) AS used_qty
-                FROM part_requests pr JOIN parts pa ON pa.id=pr.part_id JOIN vehicles v ON v.id=pr.vehicle_id ORDER BY pr.id DESC LIMIT 300'),
-            'parts' => fn() => many($p, 'SELECT id, part_number, description, unit, quantity_on_hand FROM parts WHERE active=1 ORDER BY description'),
+            'mechanics' => fn() => many($p, "SELECT id, mechanic_code, full_name, specialization, availability FROM mechanics WHERE active=1 ORDER BY full_name"),
         ]);
-        $data['pmInterval'] = Settings::value('pm_interval_km');
-        $data['jobStatuses'] = self::JOB_STATUSES;
-        $data['can'] = ['edit' => hasRole($u, 'motorpool')];
+        $data['costTypes'] = self::COST_TYPES;
+        $data['priorities'] = self::PRIORITIES;
+        $data['can'] = ['act' => hasRole($u, ...self::ACT)];
         return $data;
     }
 
     public static function action(array $u, string $action, array $d): array {
-        requireRole($u, 'motorpool');
         return match ($action) {
-            'job_add' => self::jobAdd($u, $d),
-            'job_update' => self::jobUpdate($u, $d),
-            'job_complete' => self::jobComplete($u, $d),
+            'report' => self::report($u, $d),
+            'assign_mechanic' => self::assignMechanic($u, $d),
             'assess' => self::assess($u, $d),
-            'part_request' => self::partRequest($u, $d),
-            'part_use' => self::partUse($u, $d),
-            'cost_add' => self::costAdd($u, $d),
-            'schedule_add' => self::scheduleAdd($u, $d),
-            'schedule_start' => self::scheduleStart($u, $d),
-            'schedule_cancel' => self::scheduleCancel($u, $d),
-            default => throw new BusinessRuleException('Unknown maintenance action.', 404),
+            'inspect' => self::inspect($u, $d),
+            'add_cost' => self::addCost($u, $d),
+            'complete' => self::complete($u, $d),
+            'verify' => self::verify($u, $d),
+            'cancel' => self::cancel($u, $d),
+            'details' => self::details($u, $d),
+            default => throw new BusinessRuleException('Unknown action.', 404),
         };
     }
 
-    private static function newJob(PDO $p, array $row): int {
-        $id = insert($p, 'maintenance_jobs', $row);
-        run($p, 'UPDATE maintenance_jobs SET job_number=? WHERE id=?', [refNumber('JOB', $id), $id]);
-        return $id;
+    // ------------------------------------------------------------------ helpers
+    private static function lockJob(PDO $p, int $id): array {
+        $j = one($p, 'SELECT * FROM maintenance_jobs WHERE id=? FOR UPDATE', [$id]);
+        must((bool)$j, 'Maintenance record not found.', 404);
+        return $j;
     }
 
-    /** Record a repair or maintenance requirement (PDF II.L steps 50-53). */
-    private static function jobAdd(array $u, array $d): array {
+    private static function event(PDO $p, int $jobId, ?string $from, string $to, ?int $actor, string $details = '', ?int $mechanicId = null): void {
+        run($p, 'INSERT INTO maintenance_events (maintenance_job_id, from_status, to_status, mechanic_id, details, actor_id) VALUES (?,?,?,?,?,?)',
+            [$jobId, $from, $to, $mechanicId, cut($details, 500), $actor]);
+    }
+
+    /** Locks the mechanic and checks that a new repair can be given to them. */
+    private static function freeMechanic(PDO $p, int $mechanicId, ?int $exceptJob = null): array {
+        $m = one($p, 'SELECT * FROM mechanics WHERE id=? FOR UPDATE', [$mechanicId]);
+        must($m && (int)$m['active'], 'Choose an active mechanic from the Mechanic Masterlist.');
+        must($m['availability'] !== 'Unavailable', $m['full_name'] . ' is Unavailable' . ($m['unavailable_reason'] ? ' (' . $m['unavailable_reason'] . ')' : '') . '.', 409);
+        $busy = one($p, "SELECT job_ref, id FROM maintenance_jobs WHERE active_mechanic=?", [$mechanicId]);
+        must(!$busy || (int)$busy['id'] === (int)$exceptJob, $m['full_name'] . ' is already assigned to ' . ($busy['job_ref'] ?? '') . '. Choose an Available mechanic.', 409);
+        return $m;
+    }
+
+    /** Recomputes a mechanic's availability from their active repairs (Unavailable is kept). */
+    public static function refreshMechanic(PDO $p, ?int $mechanicId): void {
+        if (!$mechanicId) return;
+        $m = one($p, 'SELECT availability FROM mechanics WHERE id=? FOR UPDATE', [$mechanicId]);
+        if (!$m || $m['availability'] === 'Unavailable') return;
+        $busy = (bool)one($p, 'SELECT id FROM maintenance_jobs WHERE active_mechanic=?', [$mechanicId]);
+        run($p, 'UPDATE mechanics SET availability=? WHERE id=?', [$busy ? 'Assigned' : 'Available', $mechanicId]);
+    }
+
+    private static function setMechanic(PDO $p, array $j, int $mechanicId): void {
+        try { run($p, 'UPDATE maintenance_jobs SET mechanic_id=? WHERE id=?', [$mechanicId, $j['id']]); }
+        catch (PDOException $e) {
+            if (str_contains($e->getMessage(), 'Duplicate')) throw new BusinessRuleException('This mechanic already has another active repair.', 409);
+            throw $e;
+        }
+        self::refreshMechanic($p, $mechanicId);
+        if ($j['mechanic_id'] && (int)$j['mechanic_id'] !== $mechanicId) self::refreshMechanic($p, (int)$j['mechanic_id']);
+    }
+
+    // ------------------------------------------------------------------ actions
+    /** Report a truck problem found at the garage (on-premise). The truck goes Under Maintenance at once. */
+    private static function report(array $u, array $d): array {
+        requireRole($u, ...self::ACT);
         $vid = idField($d, 'vehicle_id');
-        $type = choiceField($d, 'maintenance_type', ['Repair', 'Preventive Maintenance']);
-        $desc = field($d, 'description', 2000);
-        $exp = dateField($d, 'expected_completion', false);
-        $who = optField($d, 'assigned_to', 150);
-        return transaction(function (PDO $p) use ($u, $vid, $type, $desc, $exp, $who) {
-            $v = one($p, 'SELECT * FROM vehicles WHERE id=? AND active=1 FOR UPDATE', [$vid]);
-            must((bool)$v, 'Truck not found.', 404);
+        $problem = field($d, 'problem', 500);
+        $date = dateField($d, 'reported_on');
+        must($date <= date('Y-m-d'), 'The date reported cannot be in the future.');
+        $priority = choiceField($d, 'priority', self::PRIORITIES);
+        $mechanicId = optId($d, 'mechanic_id');
+        $remarks = optField($d, 'remarks', 500);
+        return transaction(function (PDO $p) use ($u, $vid, $problem, $date, $priority, $mechanicId, $remarks) {
+            $v = one($p, 'SELECT * FROM vehicles WHERE id=? FOR UPDATE', [$vid]);
+            must($v && (int)$v['active'], 'Truck not found or inactive.', 404);
+            $open = FleetState::openJob($p, $vid);
+            must(!$open, 'Truck ' . $v['plate_number'] . ' already has an unresolved maintenance record (' . ($open['job_ref'] ?? '') . '). Add the new findings to that record.', 409);
             $trip = FleetState::activeTrip($p, $vid);
-            must(!$trip || !in_array($trip['status'], FleetState::ON_ROAD_TRIP_STATUSES, true), 'Truck is on trip ' . ($trip['trip_ref'] ?? '') . '. The dispatcher reports road problems as an incident.', 409);
-            must(!$trip, 'Truck is reserved for trip ' . ($trip['trip_ref'] ?? '') . '. Ask the Operations Head to assign another truck first.', 409);
-            $id = self::newJob($p, ['vehicle_id' => $vid, 'source' => 'Manual', 'maintenance_type' => $type, 'description' => $desc,
-                'assigned_to' => $who, 'expected_completion' => $exp, 'status' => 'Reported', 'odometer_at_service' => $v['odometer_km'], 'created_by' => $u['id']]);
-            FleetState::setStatus($p, $vid, 'Under Maintenance', $u['id'], refNumber('JOB', $id) . ' ' . $type);
-            audit($p, $u['id'], 'Maintenance', refNumber('JOB', $id), 'maintenance job created', $v['plate_number'] . ': ' . $desc);
-            Notify::roles($p, ['operations_head'], 'Truck under maintenance', $v['plate_number'] . ' is under maintenance' . ($exp ? ', expected back ' . $exp : '') . '.', 'maintenance');
-            return ['job_id' => $id, 'message' => 'Job ' . refNumber('JOB', $id) . ' created. Truck is Under Maintenance.'];
-        });
-    }
-
-    private static function jobUpdate(array $u, array $d): array {
-        $id = idField($d, 'job_id');
-        $status = choiceField($d, 'status', self::JOB_STATUSES);
-        $exp = dateField($d, 'expected_completion', false);
-        $who = optField($d, 'assigned_to', 150);
-        return transaction(function (PDO $p) use ($u, $id, $status, $exp, $who) {
-            $j = one($p, 'SELECT m.*, v.plate_number FROM maintenance_jobs m JOIN vehicles v ON v.id=m.vehicle_id WHERE m.id=? FOR UPDATE', [$id]);
-            must($j && !in_array($j['status'], ['Completed', 'Cancelled'], true), 'Job is not open.', 409);
-            self::mustBeAssessed($p, $j);
-            run($p, "UPDATE maintenance_jobs SET status=?, expected_completion=?, assigned_to=?, started_at=COALESCE(started_at, IF(?='In Progress', NOW(), NULL)) WHERE id=?",
-                [$status, $exp, $who, $status, $id]);
-            audit($p, $u['id'], 'Maintenance', $j['job_number'], 'job updated', $j['status'] . ' -> ' . $status . ($exp ? "; expected $exp" : ''));
-            if ($exp && $exp !== $j['expected_completion']) {
-                Notify::roles($p, ['operations_head'], 'Expected availability', $j['plate_number'] . ' expected to be available on ' . $exp . '.', 'maintenance');
+            must(!$trip || !in_array($trip['status'], FleetState::ON_ROAD, true), 'Truck ' . $v['plate_number'] . ' is on the road (' . ($trip['trip_ref'] ?? '') . '). The dispatcher reports trouble during a trip with "Report incident".', 409);
+            if ($mechanicId) self::freeMechanic($p, $mechanicId);
+            $status = $mechanicId ? 'Under Inspection' : 'Reported';
+            $jid = insert($p, 'maintenance_jobs', ['job_ref' => 'TMP-' . bin2hex(random_bytes(6)), 'vehicle_id' => $vid, 'source' => 'On-Premise',
+                'problem' => $problem, 'reported_on' => $date, 'priority' => $priority, 'status' => 'Reported', 'remarks' => $remarks, 'created_by' => $u['id']]);
+            $ref = refNumber('CM', $jid);
+            run($p, 'UPDATE maintenance_jobs SET job_ref=? WHERE id=?', [$ref, $jid]);
+            Files::store($p, $u, 'photos', 'maintenance', $jid, 'Inspection Photo', true, 'photos of the damaged parts or truck condition');
+            self::event($p, $jid, null, 'Reported', $u['id'], $problem);
+            if ($mechanicId) {
+                $j = self::lockJob($p, $jid);
+                self::setMechanic($p, $j, $mechanicId);
+                run($p, "UPDATE maintenance_jobs SET status='Under Inspection', started_by=?, started_at=NOW() WHERE id=?", [$u['id'], $jid]);
+                self::event($p, $jid, 'Reported', 'Under Inspection', $u['id'], 'mechanic assigned', $mechanicId);
             }
-            return ['job_id' => $id];
+            $msg = "Problem reported ($ref). Truck " . $v['plate_number'] . ' is Under Maintenance and cannot be assigned to trips.';
+            if ($trip) { Actions::load('Trips'); $msg .= ' ' . Trips::resourceLost($p, $u, (int)$trip['id'], 'Truck ' . $v['plate_number'] . ' has a reported problem'); }
+            FleetState::reconcile($p, $vid, $u['id'], "Corrective maintenance $ref");
+            audit($p, $u['id'], 'Maintenance', 'job ' . $jid, 'truck problem reported', "$ref {$v['plate_number']} ($priority): " . cut($problem, 200));
+            Notify::roles($p, ['operations_head'], 'Truck under maintenance', $v['plate_number'] . " has a reported problem ($ref, $priority priority). It cannot be assigned until the repair is verified.", 'maintenance', 'job-open-' . $jid);
+            return ['job_id' => $jid, 'job_ref' => $ref, 'message' => $msg . ($mechanicId ? '' : ' Assign a mechanic to start the inspection.')];
         });
     }
 
-    /** Incident job: kailangang ma-assess muna (Minor o Major) bago galawin. */
-    private static function mustBeAssessed(PDO $p, array $j): void {
-        if (!$j['incident_id']) return;
-        $i = one($p, 'SELECT severity FROM incidents WHERE id=?', [$j['incident_id']]);
-        must($i && $i['severity'], 'Assess the incident first (Minor or Major damage).', 409);
+    /** Assign (or change) the mechanic. Reported -> Under Inspection. */
+    private static function assignMechanic(array $u, array $d): array {
+        requireRole($u, ...self::ACT);
+        $id = idField($d, 'job_id'); $mechanicId = idField($d, 'mechanic_id');
+        $reason = optField($d, 'reason', 255);
+        return transaction(function (PDO $p) use ($u, $id, $mechanicId, $reason) {
+            $j = self::lockJob($p, $id);
+            must(in_array($j['status'], self::ACTIVE, true), 'This record is ' . $j['status'] . '.', 409);
+            must(!($j['source'] === 'Incident' && $j['status'] === 'Reported'), 'Assess the incident first (Minor or Major); the mechanic is chosen there.', 409);
+            if ((int)$j['mechanic_id'] === $mechanicId) return ['message' => 'This mechanic is already assigned.'];
+            if ($j['mechanic_id']) must($reason !== null, 'Give the reason for changing the mechanic.');
+            $m = self::freeMechanic($p, $mechanicId, (int)$j['id']);
+            self::setMechanic($p, $j, $mechanicId);
+            $to = $j['status'] === 'Reported' ? 'Under Inspection' : $j['status'];
+            if ($to !== $j['status']) run($p, "UPDATE maintenance_jobs SET status=?, started_by=?, started_at=NOW() WHERE id=?", [$to, $u['id'], $id]);
+            self::event($p, $id, $j['status'], $to, $u['id'], ($j['mechanic_id'] ? 'mechanic changed' : 'mechanic assigned') . ($reason ? ': ' . $reason : ''), $mechanicId);
+            audit($p, $u['id'], 'Maintenance', 'job ' . $id, 'mechanic assigned', $j['job_ref'] . ' -> ' . $m['full_name']);
+            return ['message' => $m['full_name'] . ' is assigned to ' . $j['job_ref'] . ($to !== $j['status'] ? ' (Under Inspection).' : '.')];
+        });
     }
 
-    /**
-     * Scenario C step 3: Maintenance -> Assess Truck Damage.
-     *   Minor (C.1): magpapadala ng mekaniko sa lokasyon; tuloy ang trip pagkatapos.
-     *   Major (C.2): truck "Under Maintenance", trip "For Reschedule",
-     *                hindi pwedeng i-assign sa ibang trip habang inaayos.
-     */
+    /** Incident assessment: Minor (on-site repair) or Major (return, repair, redispatch). PDF #12 Scenario C step 3. */
     private static function assess(array $u, array $d): array {
+        requireRole($u, ...self::ACT);
         $id = idField($d, 'job_id');
         $sev = choiceField($d, 'severity', ['Minor', 'Major']);
-        $notes = optField($d, 'notes', 255);
-        $mechanic = optField($d, 'assigned_to', 150);
-        $exp = dateField($d, 'expected_completion', false);
-        return transaction(function (PDO $p) use ($u, $id, $sev, $notes, $mechanic, $exp) {
-            $j = one($p, 'SELECT m.*, v.plate_number FROM maintenance_jobs m JOIN vehicles v ON v.id=m.vehicle_id WHERE m.id=? FOR UPDATE', [$id]);
-            must($j && $j['incident_id'], 'This job did not come from an incident report.', 409);
-            must(!in_array($j['status'], ['Completed', 'Cancelled'], true), 'Job is not open.', 409);
-            $i = one($p, 'SELECT * FROM incidents WHERE id=? FOR UPDATE', [$j['incident_id']]);
-            must($i && !$i['severity'], 'This incident was already assessed as ' . ($i['severity'] ?? '') . '.', 409);
-            $t = one($p, 'SELECT * FROM trips WHERE id=? FOR UPDATE', [$i['trip_id']]);
-            must($t && $t['status'] === 'On Hold - Incident Reported', 'The trip is not on hold for this incident.', 409);
-            $ev = $p->prepare('INSERT INTO trip_events (trip_id, actor_id, event_type, from_status, to_status, notes) VALUES (?,?,?,?,?,?)');
-            if ($sev === 'Minor') {
-                run($p, "UPDATE incidents SET severity='Minor', status='Under Repair', assessed_by=?, assessed_at=NOW(), action_taken=? WHERE id=?", [$u['id'], $notes, $i['id']]);
-                run($p, "UPDATE maintenance_jobs SET maintenance_type='Roadside Repair', status='In Progress', started_at=COALESCE(started_at, NOW()), assigned_to=?, expected_completion=? WHERE id=?", [$mechanic, $exp, $id]);
-                $ev->execute([$t['id'], $u['id'], 'incident assessed: minor damage (mechanic sent)', $t['status'], $t['status'], cut((string)$notes, 500)]);
-                Notify::roles($p, [$t['dispatcher_role'], 'operations_head'], 'Minor damage', $j['plate_number'] . ' (' . $t['trip_ref'] . '): minor damage, mechanic sent to the location.', 'trips');
-                $msg = 'Assessed as Minor. Mechanic sent; confirm the repair when the truck is safe to continue.';
-            } else {
-                run($p, "UPDATE incidents SET severity='Major', status='For Reschedule', assessed_by=?, assessed_at=NOW(), action_taken=? WHERE id=?", [$u['id'], $notes, $i['id']]);
-                run($p, 'UPDATE maintenance_jobs SET assigned_to=?, expected_completion=? WHERE id=?', [$mechanic, $exp, $id]);
-                run($p, "UPDATE trips SET status='For Reschedule' WHERE id=?", [$t['id']]);
-                $ev->execute([$t['id'], $u['id'], 'incident assessed: major damage (truck returned for repair)', $t['status'], 'For Reschedule', cut((string)$notes, 500)]);
-                FleetState::setStatus($p, (int)$j['vehicle_id'], 'Under Maintenance', $u['id'], 'Major damage on ' . $t['trip_ref']);
-                FleetState::setCrew($p, [$t['driver_id'], $t['driver2_id'], $t['helper_id']], 'On Trip', 'Available');
-                Notify::roles($p, [$t['dispatcher_role'], 'operations_head'], 'Major damage', $j['plate_number'] . ' (' . $t['trip_ref'] . '): major damage. Truck is Under Maintenance and the trip is For Reschedule.', 'trips');
-                $msg = 'Assessed as Major. Truck is Under Maintenance and the trip is For Reschedule.';
+        $rec = field($d, 'recommendation', 500);
+        $mechanicId = idField($d, 'mechanic_id');
+        $exp = dateField($d, 'expected_completion', $sev === 'Major');
+        if ($exp) must($exp >= date('Y-m-d'), 'Expected completion cannot be in the past.');
+        return transaction(function (PDO $p) use ($u, $id, $sev, $rec, $mechanicId, $exp) {
+            $j = self::lockJob($p, $id);
+            must($j['source'] === 'Incident' && $j['status'] === 'Reported', 'Only a newly reported incident can be assessed.', 409);
+            $inc = one($p, 'SELECT * FROM incidents WHERE id=? FOR UPDATE', [$j['incident_id']]);
+            $t = one($p, 'SELECT * FROM trips WHERE id=? FOR UPDATE', [$j['trip_id']]);
+            must($t && $t['status'] === 'On Hold - Incident Reported', 'The trip is not On Hold.', 409);
+            $m = self::freeMechanic($p, $mechanicId);
+            self::setMechanic($p, $j, $mechanicId);
+            run($p, "UPDATE maintenance_jobs SET status='Under Inspection', severity=?, priority=?, expected_completion=?, started_by=?, started_at=NOW(), remarks=? WHERE id=?",
+                [$sev, $sev === 'Major' ? 'Critical' : 'High', $exp, $u['id'], $rec, $id]);
+            run($p, "UPDATE incidents SET severity=?, recommendation=?, status='Under Repair', assessed_by=?, assessed_at=NOW() WHERE id=?", [$sev, $rec, $u['id'], $inc['id']]);
+            self::event($p, $id, 'Reported', 'Under Inspection', $u['id'], "assessed $sev: $rec", $mechanicId);
+            audit($p, $u['id'], 'Maintenance', 'job ' . $id, 'incident assessed', $inc['incident_ref'] . ': ' . $sev . '; mechanic ' . $m['full_name']);
+            Notify::resolve($p, 'incident-assess-' . $inc['id']);
+            Actions::load('Trips');
+            if ($sev === 'Major') {
+                Trips::setStatus($p, $u['id'], $t, 'For Reschedule', 'major damage: truck returned for repair', $inc['incident_ref'] . ($exp ? '; expected back ' . $exp : ''));
+                $now = FleetState::reconcile($p, (int)$j['vehicle_id'], $u['id'], 'Major damage ' . $inc['incident_ref']);
+                Notify::roles($p, [$t['dispatcher_role'], 'operations_head'], 'Major damage', $t['trip_ref'] . ' is For Reschedule. Truck is ' . $now . ($exp ? ' (expected back ' . $exp . ')' : '') . '.', 'trips');
+                return ['message' => 'Assessed as MAJOR. ' . $m['full_name'] . ' is assigned. Truck is ' . $now . ' and the trip is For Reschedule.'];
             }
-            audit($p, $u['id'], 'Maintenance', $j['job_number'], 'incident assessed', $sev . ($notes ? ": $notes" : ''));
-            return ['job_id' => $id, 'message' => $msg];
+            Trips::event($p, $u['id'], (int)$t['id'], 'minor damage: mechanic sent to the location', $t['status'], $t['status'], $inc['incident_ref'] . '; ' . $m['full_name']);
+            Notify::roles($p, [$t['dispatcher_role'], 'operations_head'], 'Minor damage', $t['trip_ref'] . ': ' . $m['full_name'] . ' sent for on-site repair.', 'trips');
+            return ['message' => 'Assessed as MINOR. ' . $m['full_name'] . ' is sent to the location. Record the findings, the repair, then verify the truck.'];
+        });
+    }
+
+    /** Inspection findings + diagnosis. Under Inspection -> Under Repair. */
+    private static function inspect(array $u, array $d): array {
+        requireRole($u, ...self::ACT);
+        $id = idField($d, 'job_id');
+        $findings = field($d, 'findings', 2000);
+        $diagnosis = field($d, 'diagnosis', 2000);
+        $exp = dateField($d, 'expected_completion', false);
+        if ($exp) must($exp >= date('Y-m-d'), 'Expected completion cannot be in the past.');
+        return transaction(function (PDO $p) use ($u, $id, $findings, $diagnosis, $exp) {
+            $j = self::lockJob($p, $id);
+            must($j['status'] === 'Under Inspection', 'Findings are recorded while the record is Under Inspection (now: ' . $j['status'] . ').', 409);
+            must((bool)$j['mechanic_id'], 'Assign a mechanic first.', 409);
+            run($p, "UPDATE maintenance_jobs SET status='Under Repair', findings=?, diagnosis=?, expected_completion=COALESCE(?, expected_completion) WHERE id=?", [$findings, $diagnosis, $exp, $id]);
+            Files::store($p, $u, 'photos', 'maintenance', $id, 'Inspection Photo');
+            self::event($p, $id, 'Under Inspection', 'Under Repair', $u['id'], 'diagnosis: ' . $diagnosis, (int)$j['mechanic_id']);
+            audit($p, $u['id'], 'Maintenance', 'job ' . $id, 'inspection recorded', $j['job_ref'] . ': ' . cut($diagnosis, 200));
+            return ['message' => 'Findings and diagnosis saved. ' . $j['job_ref'] . ' is Under Repair.'];
+        });
+    }
+
+    /** Repair costs (labor, outside service ...). Recorded as maintenance expenses. */
+    private static function addCost(array $u, array $d): array {
+        requireRole($u, ...self::ACT);
+        $id = idField($d, 'job_id');
+        $row = ['cost_type' => choiceField($d, 'cost_type', self::COST_TYPES), 'description' => field($d, 'description', 255),
+                'provider' => optField($d, 'provider', 150), 'amount' => moneyField($d, 'amount'), 'incurred_on' => dateField($d, 'incurred_on')];
+        must($row['incurred_on'] <= date('Y-m-d'), 'The date cannot be in the future.');
+        return transaction(function (PDO $p) use ($u, $id, $row) {
+            $j = self::lockJob($p, $id);
+            must(in_array($j['status'], ['Under Inspection', 'Under Repair'], true), 'Costs are added while the record is Under Inspection or Under Repair.', 409);
+            $cid = insert($p, 'maintenance_costs', ['maintenance_job_id' => $id, 'recorded_by' => $u['id']] + $row);
+            Money::expense($p, $u, 'Maintenance', $row['amount'], $row['incurred_on'], 'Maintenance', $cid, null, (int)$j['vehicle_id'], $row['provider'], $j['job_ref'], $row['cost_type'] . ': ' . $row['description']);
+            audit($p, $u['id'], 'Maintenance', 'job ' . $id, 'repair cost added', $j['job_ref'] . ' ' . $row['cost_type'] . ' PHP ' . $row['amount']);
+            return ['message' => 'Cost recorded.'];
+        });
+    }
+
+    /** Repair done: corrective action + completion date + evidence. The mechanic becomes free; the truck waits for verification. */
+    private static function complete(array $u, array $d): array {
+        requireRole($u, ...self::ACT);
+        $id = idField($d, 'job_id');
+        $performed = field($d, 'repair_performed', 2000);
+        $done = dateField($d, 'completed_on');
+        must($done <= date('Y-m-d'), 'Completion date cannot be in the future.');
+        $remarks = optField($d, 'remarks', 500);
+        return transaction(function (PDO $p) use ($u, $id, $performed, $done, $remarks) {
+            $j = self::lockJob($p, $id);
+            must($j['status'] === 'Under Repair', $j['status'] === 'Under Inspection' ? 'Record the inspection findings and diagnosis first.' : 'Only records Under Repair can be completed (now: ' . $j['status'] . ').', 409);
+            must($done >= (string)$j['reported_on'], 'Completion date is before the date reported.');
+            Files::store($p, $u, 'evidence', 'maintenance', $id, 'Repair Evidence');
+            must(Files::count($p, 'maintenance', $id, 'Repair Evidence') > 0, 'Attach at least one photo or document as evidence of the repair.', 422);
+            run($p, "UPDATE maintenance_jobs SET status='Completed', repair_performed=?, completed_on=?, remarks=COALESCE(?, remarks), completed_by=?, completed_at=NOW() WHERE id=?",
+                [$performed, $done, $remarks, $u['id'], $id]);
+            self::refreshMechanic($p, $j['mechanic_id'] ? (int)$j['mechanic_id'] : null);
+            self::event($p, $id, 'Under Repair', 'Completed', $u['id'], 'corrective action: ' . $performed, $j['mechanic_id'] ? (int)$j['mechanic_id'] : null);
+            audit($p, $u['id'], 'Maintenance', 'job ' . $id, 'repair completed', $j['job_ref'] . ': ' . cut($performed, 200));
+            $v = one($p, 'SELECT plate_number FROM vehicles WHERE id=?', [$j['vehicle_id']]);
+            return ['message' => 'Repair completed. Truck ' . $v['plate_number'] . ' stays out of service until you verify it (Verify & return to service).'];
         });
     }
 
     /**
-     * Complete a job and return the truck to Available when nothing else is
-     * open (PDF II.L step 57 and p.18 "pwede na baguhin ni maintenance yung
-     * status as available").
-     * Incident jobs (bagong PDF Scenario C):
-     *   Minor -> incident "Repaired - Cleared to Continue"; dispatcher ang mag-Resume Trip.
-     *   Major -> truck Available; dispatcher ang mag-Reschedule Trip.
+     * Operational verification after the repair. Passed -> the truck returns to service
+     * (Available, or Assigned if a trip is waiting for it). Failed -> back to Under Repair.
      */
-    private static function jobComplete(array $u, array $d): array {
+    private static function verify(array $u, array $d): array {
+        requireRole($u, ...self::ACT);
         $id = idField($d, 'job_id');
-        $notes = optField($d, 'notes', 255);
-        return transaction(function (PDO $p) use ($u, $id, $notes) {
-            $j = one($p, 'SELECT m.*, v.plate_number, v.odometer_km FROM maintenance_jobs m JOIN vehicles v ON v.id=m.vehicle_id WHERE m.id=? FOR UPDATE', [$id]);
-            must($j && !in_array($j['status'], ['Completed', 'Cancelled'], true), 'Job is not open.', 409);
-            self::mustBeAssessed($p, $j);
-            run($p, "UPDATE maintenance_jobs SET status='Completed', completed_at=NOW(), description=CONCAT(description, ?) WHERE id=?", [$notes ? "\nDone: $notes" : '', $id]);
-            $inc = $j['incident_id'] ? one($p, 'SELECT * FROM incidents WHERE id=? FOR UPDATE', [$j['incident_id']]) : null;
-            if ($inc && $inc['severity'] === 'Minor') {
-                run($p, "UPDATE incidents SET status='Repaired - Cleared to Continue', resolved_at=NOW() WHERE id=?", [$inc['id']]);
-            } elseif ($inc) {
-                run($p, "UPDATE incidents SET status='Resolved', resolved_at=NOW() WHERE id=?", [$inc['id']]);
+        $result = choiceField($d, 'result', ['Passed', 'Failed']);
+        $notes = field($d, 'verification_notes', 500);
+        $mechanicId = optId($d, 'mechanic_id');
+        return transaction(function (PDO $p) use ($u, $id, $result, $notes, $mechanicId) {
+            $j = self::lockJob($p, $id);
+            must($j['status'] === 'Completed' && !$j['verified_at'], 'Only completed repairs waiting for verification can be verified.', 409);
+            $v = one($p, 'SELECT plate_number FROM vehicles WHERE id=?', [$j['vehicle_id']]);
+            if ($result === 'Failed') {
+                $mid = $mechanicId ?: (int)$j['mechanic_id'];
+                must($mid > 0, 'Choose the mechanic who will continue the repair.');
+                self::freeMechanic($p, $mid, (int)$j['id']);
+                run($p, "UPDATE maintenance_jobs SET status='Under Repair', completed_on=NULL, completed_by=NULL, completed_at=NULL WHERE id=?", [$id]);
+                self::setMechanic($p, self::lockJob($p, $id), $mid);
+                self::event($p, $id, 'Completed', 'Under Repair', $u['id'], 'verification failed: ' . $notes, $mid);
+                audit($p, $u['id'], 'Maintenance', 'job ' . $id, 'verification failed', $j['job_ref'] . ': ' . cut($notes, 200));
+                return ['message' => 'Verification failed. ' . $j['job_ref'] . ' is back Under Repair; truck ' . $v['plate_number'] . ' stays out of service.'];
             }
-            if ($j['maintenance_type'] === 'Preventive Maintenance') {
-                // Reset the km counter after PM (TODO C08: confirm reset rule per maintenance type).
-                run($p, 'UPDATE vehicles SET km_since_pm=0 WHERE id=?', [$j['vehicle_id']]);
-                run($p, "UPDATE maintenance_schedules SET status='Completed' WHERE maintenance_job_id=?", [$id]);
+            run($p, 'UPDATE maintenance_jobs SET verified_at=NOW(), verified_by=?, verification_notes=? WHERE id=?', [$u['id'], $notes, $id]);
+            self::event($p, $id, 'Completed', 'Completed', $u['id'], 'verified, returned to service: ' . $notes);
+            $now = FleetState::reconcile($p, (int)$j['vehicle_id'], $u['id'], 'Repair verified ' . $j['job_ref']);
+            audit($p, $u['id'], 'Maintenance', 'job ' . $id, 'truck returned to service', $j['job_ref'] . ' ' . $v['plate_number'] . ': ' . cut($notes, 200));
+            Notify::resolve($p, 'job-open-' . $id);
+            $msg = 'Verified. Truck ' . $v['plate_number'] . ' is back in service (' . $now . ').';
+            Actions::load('Trips');
+            if ($j['source'] === 'Incident') {
+                $inc = one($p, 'SELECT * FROM incidents WHERE id=? FOR UPDATE', [$j['incident_id']]);
+                $t = one($p, 'SELECT * FROM trips WHERE id=?', [$j['trip_id']]);
+                if ($j['severity'] === 'Minor') {
+                    run($p, "UPDATE incidents SET status='Repaired - Cleared to Continue' WHERE id=?", [$inc['id']]);
+                    Trips::event($p, $u['id'], (int)$t['id'], 'repaired - cleared to continue', $t['status'], $t['status'], $inc['incident_ref']);
+                    Notify::roles($p, [$t['dispatcher_role']], 'Cleared to continue', $t['trip_ref'] . ': truck repaired on site. Resume the trip.', 'trips', 'trip-resume-' . $inc['id']);
+                    $msg .= ' The dispatcher was told to resume the trip.';
+                } else {
+                    run($p, "UPDATE incidents SET status='Resolved', resolved_at=NOW() WHERE id=?", [$inc['id']]);
+                    Trips::event($p, $u['id'], (int)$t['id'], 'truck repaired after major damage', $t['status'], $t['status'], $inc['incident_ref']);
+                    Notify::roles($p, [$t['dispatcher_role'], 'operations_head'], 'Truck available again', $v['plate_number'] . ' is repaired. Reschedule ' . $t['trip_ref'] . '.', 'trips', 'trip-reschedule-' . $inc['id']);
+                    $msg .= ' The dispatcher can now reschedule the trip.';
+                }
+            } else {
+                Notify::roles($p, ['operations_head', 'car_carrier_dispatcher', 'container_wingvan_dispatcher'], 'Truck available again', $v['plate_number'] . ' was repaired, verified and is ' . $now . '.', 'trucks');
+                if ($auto = Trips::assignWaiting($p, $u)) $msg .= ' ' . $auto;
             }
-            $status = FleetState::reconcile($p, (int)$j['vehicle_id'], $u['id'], $j['job_number'] . ' completed');
-            audit($p, $u['id'], 'Maintenance', $j['job_number'], 'job completed', $j['plate_number'] . ' is now ' . $status);
-            $msg = 'Job completed. Truck ' . $j['plate_number'] . ' is now ' . $status . '.';
-            $t = $j['trip_id'] ? one($p, 'SELECT trip_ref, status, dispatcher_role FROM trips WHERE id=?', [$j['trip_id']]) : null;
-            if ($inc && $inc['severity'] === 'Minor' && $t && $t['status'] === 'On Hold - Incident Reported') {
-                // Scenario C.1 step 6: abiso sa dispatcher na pwede nang ituloy ang biyahe.
-                Notify::roles($p, [$t['dispatcher_role'], 'operations_head'], 'Repaired - Cleared to Continue', $j['plate_number'] . ' is repaired. ' . $t['trip_ref'] . ' can resume (Resume Trip).', 'trips');
-                $msg = 'Repair confirmed: Repaired - Cleared to Continue. The dispatcher can now resume ' . $t['trip_ref'] . '.';
-            } elseif ($t && $t['status'] === 'For Reschedule' && $status === 'Available') {
-                // Scenario C.2 step 6: available na ulit ang truck; abiso sa dispatcher.
-                Notify::roles($p, [$t['dispatcher_role'], 'operations_head'], 'Truck available', $j['plate_number'] . ' is repaired and Available. ' . $t['trip_ref'] . ' can now be rescheduled.', 'trips');
-                $msg .= ' Trip ' . $t['trip_ref'] . ' can now be rescheduled by the dispatcher.';
-            }
-            Notify::roles($p, ['operations_head'], 'Truck status', $msg, 'fleet');
-            return ['job_id' => $id, 'message' => $msg];
+            return ['message' => $msg];
         });
     }
 
-    /** Stock-out request to Purchasing (PDF p.17 A). */
-    private static function partRequest(array $u, array $d): array {
-        $vid = idField($d, 'vehicle_id'); $part = idField($d, 'part_id'); $qty = intField($d, 'quantity', 1);
-        $job = optId($d, 'job_id'); $notes = optField($d, 'notes', 255);
-        return transaction(function (PDO $p) use ($u, $vid, $part, $qty, $job, $notes) {
-            must((bool)one($p, 'SELECT id FROM vehicles WHERE id=?', [$vid]), 'Truck not found.');
-            $pa = one($p, 'SELECT * FROM parts WHERE id=? AND active=1', [$part]);
-            must((bool)$pa, 'Part not found.');
-            if ($job) must((bool)one($p, "SELECT id FROM maintenance_jobs WHERE id=? AND vehicle_id=? AND status NOT IN ('Completed','Cancelled')", [$job, $vid]), 'Choose an open job of the same truck.');
-            $id = insert($p, 'part_requests', ['vehicle_id' => $vid, 'maintenance_job_id' => $job, 'part_id' => $part, 'requested_qty' => $qty, 'notes' => $notes, 'requested_by' => $u['id']]);
-            audit($p, $u['id'], 'Inventory', 'part request ' . $id, 'parts requested', $pa['part_number'] . ' x' . $qty);
-            Notify::roles($p, ['purchasing'], 'Parts request', 'Motorpool requests ' . $qty . ' ' . $pa['unit'] . ' of ' . $pa['description'] . '.', 'inventory');
-            if ($job) run($p, "UPDATE maintenance_jobs SET status='Waiting for Parts' WHERE id=? AND status IN ('Reported','Scheduled','In Progress')", [$job]);
-            return ['request_id' => $id, 'message' => 'Parts request sent to Purchasing.'];
-        });
-    }
-
-    /** Parts and materials used on a job, from issued stock (PDF II.L step 54, II.K maintenance integration). */
-    private static function partUse(array $u, array $d): array {
-        $jobId = idField($d, 'job_id'); $reqId = idField($d, 'request_id'); $qty = intField($d, 'quantity', 1);
-        return transaction(function (PDO $p) use ($u, $jobId, $reqId, $qty) {
-            $j = one($p, 'SELECT * FROM maintenance_jobs WHERE id=? FOR UPDATE', [$jobId]);
-            must($j && !in_array($j['status'], ['Completed', 'Cancelled'], true), 'Job is not open.', 409);
-            $r = one($p, 'SELECT pr.*, pa.unit_cost FROM part_requests pr JOIN parts pa ON pa.id=pr.part_id WHERE pr.id=? FOR UPDATE', [$reqId]);
-            must($r && $r['status'] === 'Issued' && (int)$r['vehicle_id'] === (int)$j['vehicle_id'], 'Choose an issued parts request for the same truck.', 409);
-            $used = (int)one($p, 'SELECT COALESCE(SUM(quantity),0) AS q FROM maintenance_parts_used WHERE part_request_id=?', [$reqId])['q'];
-            must($used + $qty <= (int)$r['requested_qty'], 'Only ' . ((int)$r['requested_qty'] - $used) . ' left from this issued request.', 409);
-            $id = insert($p, 'maintenance_parts_used', ['maintenance_job_id' => $jobId, 'part_request_id' => $reqId, 'part_id' => $r['part_id'],
-                'quantity' => $qty, 'unit_cost' => $r['unit_cost'], 'recorded_by' => $u['id']]);
-            audit($p, $u['id'], 'Maintenance', $j['job_number'], 'part used', 'request ' . $reqId . ' x' . $qty);
-            return ['usage_id' => $id];
-        });
-    }
-
-    /** Repair costs (labor, outside service) -> also a Maintenance expense for Finance. */
-    private static function costAdd(array $u, array $d): array {
-        $jobId = idField($d, 'job_id');
-        $row = ['cost_type' => choiceField($d, 'cost_type', ['Labor', 'Outside Service', 'Materials', 'Other']),
-                'description' => field($d, 'description', 255), 'provider' => optField($d, 'provider', 150),
-                'amount' => moneyField($d, 'amount'), 'incurred_on' => dateField($d, 'incurred_on')];
-        return transaction(function (PDO $p) use ($u, $jobId, $row) {
-            $j = one($p, 'SELECT * FROM maintenance_jobs WHERE id=?', [$jobId]);
-            must((bool)$j, 'Job not found.', 404);
-            $id = insert($p, 'maintenance_costs', ['maintenance_job_id' => $jobId, 'recorded_by' => $u['id']] + $row);
-            insert($p, 'expenses', ['category' => 'Maintenance', 'vehicle_id' => $j['vehicle_id'], 'trip_id' => $j['trip_id'], 'amount' => $row['amount'],
-                'incurred_on' => $row['incurred_on'], 'payee' => $row['provider'], 'description' => $j['job_number'] . ' ' . $row['cost_type'] . ': ' . $row['description'],
-                'source' => 'Maintenance', 'source_id' => $id, 'recorded_by' => $u['id']]);
-            audit($p, $u['id'], 'Maintenance', $j['job_number'], 'cost recorded', $row['cost_type'] . ' PHP ' . $row['amount']);
-            return ['cost_id' => $id, 'message' => 'Cost recorded and sent to Finance as a Maintenance expense.'];
-        });
-    }
-
-    private static function scheduleAdd(array $u, array $d): array {
-        $vid = idField($d, 'vehicle_id'); $type = field($d, 'maintenance_type', 100);
-        $due = dateField($d, 'due_on', false); $km = intField($d, 'due_odometer_km', 0, false);
-        must($due !== null || $km !== null, 'Enter a due date or a due odometer.');
-        $notes = optField($d, 'notes', 255);
-        return transaction(function (PDO $p) use ($u, $vid, $type, $due, $km, $notes) {
-            must((bool)one($p, 'SELECT id FROM vehicles WHERE id=?', [$vid]), 'Truck not found.');
-            $id = insert($p, 'maintenance_schedules', ['vehicle_id' => $vid, 'maintenance_type' => $type, 'due_on' => $due, 'due_odometer_km' => $km, 'notes' => $notes, 'created_by' => $u['id']]);
-            audit($p, $u['id'], 'Maintenance', 'schedule ' . $id, 'maintenance scheduled', $type . ' ' . ($due ?? '') . ' ' . ($km ? $km . ' km' : ''));
-            return ['schedule_id' => $id];
-        });
-    }
-
-    /** Start a scheduled service: creates the job and puts the truck under maintenance. */
-    private static function scheduleStart(array $u, array $d): array {
-        $id = idField($d, 'schedule_id');
-        return transaction(function (PDO $p) use ($u, $id) {
-            $s = one($p, 'SELECT s.*, v.plate_number, v.odometer_km FROM maintenance_schedules s JOIN vehicles v ON v.id=s.vehicle_id WHERE s.id=? FOR UPDATE', [$id]);
-            must($s && $s['status'] === 'Scheduled' && !$s['maintenance_job_id'], 'Schedule is not open.', 409);
-            must(!FleetState::activeTrip($p, (int)$s['vehicle_id']), 'Truck is held by a trip. Wait for the trip to end or ask Operations to reassign.', 409);
-            $type = stripos($s['maintenance_type'], 'prevent') !== false ? 'Preventive Maintenance' : 'Repair';
-            $jobId = self::newJob($p, ['vehicle_id' => $s['vehicle_id'], 'source' => 'Preventive', 'maintenance_type' => $type,
-                'description' => $s['maintenance_type'] . ($s['notes'] ? ': ' . $s['notes'] : ''), 'status' => 'In Progress', 'started_at' => date('Y-m-d H:i:s'),
-                'odometer_at_service' => $s['odometer_km'], 'created_by' => $u['id']]);
-            run($p, 'UPDATE maintenance_schedules SET maintenance_job_id=? WHERE id=?', [$jobId, $id]);
-            FleetState::setStatus($p, (int)$s['vehicle_id'], 'Under Maintenance', $u['id'], 'Scheduled service started');
-            audit($p, $u['id'], 'Maintenance', refNumber('JOB', $jobId), 'scheduled service started', $s['plate_number']);
-            return ['job_id' => $jobId, 'message' => 'Service started as job ' . refNumber('JOB', $jobId) . '.'];
-        });
-    }
-
-    private static function scheduleCancel(array $u, array $d): array {
-        $id = idField($d, 'schedule_id'); $reason = field($d, 'reason', 200);
+    /** Cancel a garage report made by mistake. Incident repairs cannot be cancelled. */
+    private static function cancel(array $u, array $d): array {
+        requireRole($u, ...self::ACT);
+        $id = idField($d, 'job_id'); $reason = field($d, 'reason', 255);
         return transaction(function (PDO $p) use ($u, $id, $reason) {
-            must(run($p, "UPDATE maintenance_schedules SET status='Cancelled', notes=CONCAT(COALESCE(notes,''), ' | Cancelled: ', ?) WHERE id=? AND status='Scheduled' AND maintenance_job_id IS NULL", [$reason, $id]) === 1, 'Schedule cannot be cancelled.', 409);
-            audit($p, $u['id'], 'Maintenance', 'schedule ' . $id, 'schedule cancelled', $reason);
-            return ['schedule_id' => $id];
+            $j = self::lockJob($p, $id);
+            must($j['source'] !== 'Incident', 'Incident repairs cannot be cancelled; complete and verify the repair instead.', 409);
+            must(in_array($j['status'], self::ACTIVE, true), 'Already ' . $j['status'] . '.', 409);
+            must(!one($p, "SELECT r.id FROM part_requests r JOIN part_request_lines l ON l.part_request_id=r.id WHERE r.maintenance_job_id=? AND l.released_qty>0", [$id]), 'Parts were already released for this record; complete it instead.', 409);
+            run($p, "UPDATE maintenance_jobs SET status='Cancelled', remarks=? WHERE id=?", [cut('Cancelled: ' . $reason, 500), $id]);
+            run($p, "UPDATE part_requests SET status='Cancelled' WHERE maintenance_job_id=? AND status='Requested'", [$id]);
+            self::refreshMechanic($p, $j['mechanic_id'] ? (int)$j['mechanic_id'] : null);
+            self::event($p, $id, $j['status'], 'Cancelled', $u['id'], $reason);
+            $now = FleetState::reconcile($p, (int)$j['vehicle_id'], $u['id'], 'Maintenance cancelled ' . $j['job_ref']);
+            audit($p, $u['id'], 'Maintenance', 'job ' . $id, 'maintenance cancelled', $j['job_ref'] . ': ' . $reason);
+            Notify::resolve($p, 'job-open-' . $id);
+            Actions::load('Trips'); Trips::assignWaiting($p, $u);
+            return ['message' => 'Record cancelled. Truck is ' . $now . '.'];
         });
+    }
+
+    private static function details(array $u, array $d): array {
+        must(Access::canOpen($u, 'maintenance') || Access::canOpen($u, 'trucks'), 'Not allowed.', 403);
+        $id = idField($d, 'job_id'); $p = db();
+        $j = one($p, 'SELECT m.*, v.plate_number, v.truck_number, v.truck_type, v.status AS truck_status, t.trip_ref, mc.full_name AS mechanic, mc.mechanic_code, mc.contact_number AS mechanic_contact,
+                su.full_name AS started_by_name, cu.full_name AS completed_by_name, vu.full_name AS verified_by_name, ru.full_name AS reported_by_name
+            FROM maintenance_jobs m JOIN vehicles v ON v.id=m.vehicle_id LEFT JOIN trips t ON t.id=m.trip_id LEFT JOIN mechanics mc ON mc.id=m.mechanic_id
+            LEFT JOIN users su ON su.id=m.started_by LEFT JOIN users cu ON cu.id=m.completed_by LEFT JOIN users vu ON vu.id=m.verified_by LEFT JOIN users ru ON ru.id=m.created_by WHERE m.id=?', [$id]);
+        must((bool)$j, 'Record not found.', 404);
+        $inc = $j['incident_id'] ? one($p, 'SELECT i.*, ru.full_name AS reported_by_name, au.full_name AS assessed_by_name FROM incidents i JOIN users ru ON ru.id=i.reported_by LEFT JOIN users au ON au.id=i.assessed_by WHERE i.id=?', [$j['incident_id']]) : null;
+        $docs = Files::of($p, 'maintenance', $id);
+        if ($inc) foreach (Files::of($p, 'incident', (int)$inc['id']) as $doc) $docs[] = $doc;
+        return [
+            'job' => $j, 'incident' => $inc, 'documents' => $docs,
+            'events' => many($p, 'SELECT e.*, u.full_name AS actor, mc.full_name AS mechanic FROM maintenance_events e LEFT JOIN users u ON u.id=e.actor_id LEFT JOIN mechanics mc ON mc.id=e.mechanic_id WHERE e.maintenance_job_id=? ORDER BY e.id', [$id]),
+            'history' => many($p, 'SELECT m.id, m.job_ref, m.source, m.problem, m.status, m.reported_on, m.completed_on, mc.full_name AS mechanic FROM maintenance_jobs m LEFT JOIN mechanics mc ON mc.id=m.mechanic_id WHERE m.vehicle_id=? ORDER BY m.id DESC LIMIT 30', [$j['vehicle_id']]),
+            'costs' => many($p, 'SELECT c.*, u.full_name AS recorded_by_name FROM maintenance_costs c JOIN users u ON u.id=c.recorded_by WHERE c.maintenance_job_id=? ORDER BY c.id', [$id]),
+            'parts' => many($p, 'SELECT r.request_ref, r.status, pt.part_number, pt.description, l.quantity, l.released_qty, l.unit_cost FROM part_requests r
+                JOIN part_request_lines l ON l.part_request_id=r.id JOIN parts pt ON pt.id=l.part_id WHERE r.maintenance_job_id=? ORDER BY r.id, l.id', [$id]),
+        ];
     }
 }

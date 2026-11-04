@@ -3,84 +3,61 @@
  * =====================================================================
  *  backend/Core/Access.php  —  WHO CAN OPEN WHICH PAGE
  * =====================================================================
- *  Each page belongs to ONE backend module (backend/Modules/<Department>/<Module>.php)
- *  and ONE frontend file (public/assets/js/modules/<department>/<file>.js).
- *  Departments: Operations, Maintenance, Accounting, General, Administration.
- *  If a module has a problem, only its pages stop working.
+ *  One short menu. Every page belongs to ONE backend module
+ *  (backend/Modules/<Department>/<Module>.php) and ONE screen file
+ *  (public/assets/js/modules/<department>/<file>.js).
  *
- *  Roles follow the FMS PDF "User Roles and Access Requirements".
- *  To give a role access to a page, add the role to 'roles' below.
- *  Each module still checks the role again before saving anything.
+ *  Roles follow PDF #11 "User Roles and Access Requirements".
+ *  This list only decides which pages a role can OPEN. Every save action
+ *  checks the role again in its module (requireRole / must), so typing a
+ *  URL or calling the API directly does not bypass the rules.
  * =====================================================================
  */
 declare(strict_types=1);
 
 final class Access {
-    public const SECTIONS = [
-        'Fleet Management'         => 'bi-truck',
-        'Trip & Dispatch'          => 'bi-send',
-        'Maintenance & Inspection' => 'bi-tools',
-        'Financial & Billing'      => 'bi-wallet2',
-        'Payroll & Timekeeping'    => 'bi-cash-stack',
-        'Records'                  => 'bi-folder2-open',
-        'Reports & Administration' => 'bi-gear',
-    ];
+    /** Small headings in the menu (only shown when the role has pages under them). */
+    public const SECTIONS = ['Masterlists', 'Maintenance', 'Accounting', 'Records'];
 
     public static function pages(): array {
         $D = ['car_carrier_dispatcher', 'container_wingvan_dispatcher'];
+        $all = array_keys(ROLE_LABELS);
         return [
-            // id => [label, icon, section (null = top), module, js file, roles]
-            'dashboard'    => ['Dashboard', 'bi-house-fill', null, 'Analytics', 'general/dashboard', array_keys(ROLE_LABELS)],
+            // id => [label, icon, section, module, js file, roles]
+            'dashboard'   => ['Dashboard', 'bi-grid-1x2', null, 'Analytics', 'general/dashboard', $all],
+            'trips'       => ['Trip Management', 'bi-signpost-split', null, 'Trips', 'operations/trips',
+                              array_merge(['admin', 'operations_head', 'motorpool', 'billing', 'audit'], $D)],
 
-            'fleet'        => ['Fleet Status & Trucks', 'bi-truck', 'Fleet Management', 'Fleet', 'operations/fleet',
-                               array_merge(['admin', 'operations_head', 'motorpool'], $D)],
-            'crew'         => ['Drivers & Helpers', 'bi-person-badge', 'Fleet Management', 'Fleet', 'operations/fleet',
-                               array_merge(['admin', 'operations_head', 'payroll'], $D)],
+            'trucks'      => ['Truck Masterlist', 'bi-truck', 'Masterlists', 'Fleet', 'operations/fleet',
+                              array_merge(['admin', 'operations_head', 'motorpool', 'purchasing', 'audit'], $D)],
+            'crew'        => ['Driver Masterlist', 'bi-person-badge', 'Masterlists', 'Fleet', 'operations/fleet',
+                              array_merge(['admin', 'operations_head', 'audit'], $D)],
+            'clients'     => ['Client Masterlist', 'bi-building', 'Masterlists', 'Clients', 'operations/clients',
+                              array_merge(['admin', 'operations_head', 'billing', 'finance', 'audit'], $D)],
+            'mechanics'   => ['Mechanic Masterlist', 'bi-person-gear', 'Masterlists', 'Mechanics', 'maintenance/mechanics',
+                              ['admin', 'operations_head', 'motorpool', 'audit']],
 
-            'trips'        => ['Dispatch Board', 'bi-send', 'Trip & Dispatch', 'Trips', 'operations/trips',
-                               array_merge(['admin', 'operations_head'], $D)],
-            'trip_records' => ['Trip Records & Waybills', 'bi-journal-text', 'Trip & Dispatch', 'Trips', 'operations/trips',
-                               array_merge(['admin', 'operations_head', 'billing', 'payroll', 'audit'], $D)],
-            'incidents'    => ['Incidents', 'bi-exclamation-triangle', 'Trip & Dispatch', 'Trips', 'operations/trips',
-                               array_merge(['admin', 'operations_head', 'motorpool'], $D)],
+            'maintenance' => ['Corrective Maintenance', 'bi-wrench-adjustable', 'Maintenance', 'Maintenance', 'maintenance/maintenance',
+                              ['admin', 'operations_head', 'motorpool', 'audit']],
+            'purchasing'  => ['Parts & Purchasing', 'bi-box-seam', 'Maintenance', 'Purchasing', 'maintenance/purchasing',
+                              ['admin', 'motorpool', 'purchasing', 'finance', 'audit']],
 
-            'maintenance'  => ['Maintenance', 'bi-tools', 'Maintenance & Inspection', 'Maintenance', 'maintenance/maintenance',
-                               ['admin', 'operations_head', 'motorpool']],
-            'inventory'    => ['Parts Inventory', 'bi-box-seam', 'Maintenance & Inspection', 'Purchasing', 'maintenance/purchasing',
-                               ['admin', 'purchasing', 'motorpool', 'finance']],
-            'purchasing'   => ['Purchasing', 'bi-cart-check', 'Maintenance & Inspection', 'Purchasing', 'maintenance/purchasing',
-                               ['admin', 'purchasing', 'finance', 'audit']],
+            'funds'       => ['Trip Funds', 'bi-cash-coin', 'Accounting', 'Funds', 'accounting/funds',
+                              array_merge(['admin', 'operations_head', 'finance', 'audit'], $D)],
+            'billing'     => ['Billing & Collection', 'bi-receipt', 'Accounting', 'Billing', 'accounting/billing',
+                              ['admin', 'billing', 'finance', 'audit']],
+            'finance'     => ['Finance', 'bi-wallet2', 'Accounting', 'Finance', 'accounting/finance',
+                              ['admin', 'finance', 'audit']],
 
-            'funds'        => ['Trip Funds & Allowances', 'bi-cash-coin', 'Financial & Billing', 'Funds', 'accounting/finance',
-                               array_merge(['admin', 'operations_head', 'finance', 'audit'], $D)],
-            'finance'      => ['Finance & Payables', 'bi-wallet2', 'Financial & Billing', 'Finance', 'accounting/finance',
-                               ['admin', 'finance', 'audit']],
-            'billing'      => ['Billing & Collections', 'bi-receipt', 'Financial & Billing', 'Billing', 'accounting/billing',
-                               ['admin', 'billing', 'audit']],
-            'clients'      => ['Clients, Routes & Rates', 'bi-person-vcard', 'Financial & Billing', 'Billing', 'accounting/billing',
-                               ['admin', 'billing', 'operations_head', 'finance', 'payroll']],
-
-            'payroll'      => ['Payroll', 'bi-cash-stack', 'Payroll & Timekeeping', 'Payroll', 'accounting/payroll',
-                               ['admin', 'payroll', 'finance', 'audit']],
-            'attendance'   => ['Attendance', 'bi-calendar-check', 'Payroll & Timekeeping', 'Payroll', 'accounting/payroll',
-                               ['admin', 'payroll']],
-            'balances'     => ['Cash Advance & Balances', 'bi-piggy-bank', 'Payroll & Timekeeping', 'Payroll', 'accounting/payroll',
-                               ['admin', 'payroll', 'finance', 'audit']],
-
-            'documents'    => ['Documents', 'bi-folder2-open', 'Records', 'Documents', 'general/documents',
-                               array_keys(ROLE_LABELS)],
-
-            'reports'      => ['Reports & Analytics', 'bi-graph-up-arrow', 'Reports & Administration', 'Analytics', 'general/reports',
-                               array_keys(ROLE_LABELS)],
-            'settings'     => ['Formula Settings', 'bi-sliders', 'Reports & Administration', 'Admin', 'administration/admin',
-                               ['admin', 'finance', 'payroll', 'audit']],
-            'users'        => ['User Accounts', 'bi-people', 'Reports & Administration', 'Admin', 'administration/admin', ['admin']],
-            'audit_log'    => ['Activity Log', 'bi-clock-history', 'Reports & Administration', 'Admin', 'administration/admin', ['admin', 'audit']],
-            'backup'       => ['Backup', 'bi-hdd-network', 'Reports & Administration', 'Admin', 'administration/admin', ['admin']],
+            'documents'   => ['Documents', 'bi-folder2-open', 'Records', 'Documents', 'general/documents', $all],
+            'reports'     => ['Reports', 'bi-bar-chart-line', 'Records', 'Analytics', 'general/reports',
+                              ['admin', 'operations_head', 'motorpool', 'purchasing', 'finance', 'billing', 'audit']],
+            'notifications' => ['Notifications', 'bi-bell', 'Records', 'Admin', 'general/notifications', $all],
+            'admin'       => ['User Management', 'bi-people', 'Records', 'Admin', 'administration/admin', ['admin', 'audit']],
         ];
     }
 
-    /** Pages the user can open, for the sidebar. */
+    /** Pages the user can open, for the menu. */
     public static function navFor(array $u): array {
         $out = [];
         foreach (self::pages() as $id => [$label, $icon, $section, $module, $js, $roles]) {

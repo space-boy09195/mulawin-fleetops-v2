@@ -1,5 +1,186 @@
 # Changelog
 
+## 2026-11-04 (revision 2: email login codes, e-signature, corrective maintenance, mechanics, map, redesign, demo scripts)
+Source: "Consolidated additional project requirements". Decisions confirmed by the team: Gmail + App Password for the
+login emails, the operator types the login codes in the scripts, the Admin sets new users' passwords, MapTiler free plan
+for the map.
+
+**Install / upgrade**
+- New install of the database is required (new tables and columns). Import, in order: `database/schema.sql`,
+  `database/extension.sql`, optionally `database/seed_masterlists.sql` (now also has 8 fictional mechanics).
+- `.env.example` gained the email settings (`MAIL_*`) and the map settings (`MAPTILER_API_KEY`, `MAPTILER_STYLE`).
+  This configuration file had to change because the new features cannot work without these values; nothing else in it changed.
+  Copy the new lines into your `.env`. Passwords and keys are never written in the code.
+- `.gitignore` gained the private files of the new automation scripts (config, saved passwords, sessions, reports,
+  sample attachments) so they are never committed.
+- No file in `docs/`, `guide/`, `README*.md` or `tests/` was changed. The new beginner guides A-M are shared as separate documents.
+
+**1. Login with an emailed code (OTP)** - replaces the temporary-password step
+- Step 1 username/email + password, step 2 a 6-digit code sent to the user's email (PHPMailer 6.9.3 vendored in
+  `backend/vendor/PHPMailer`, free Gmail SMTP with an App Password). The session is signed in only after the code.
+- Codes: 5 minutes, single use, stored hashed (`login_otps.code_hash`), a new code invalidates the old one,
+  resend after 60 s, at most 5 unused codes per 15 minutes, 5 wrong codes cancel the code and count toward the
+  account lock. No bypass; codes and passwords are never written to logs (only a masked email).
+- `users.email` (required, unique); `must_change_password` removed. The Admin sets each new user's password.
+- New `scripts/test_email.php` (sends one test email; prints only SENT or the reason). `scripts/create_user.php`
+  and `scripts/reset_password.php` ask for the password with hidden typing (no temporary passwords).
+
+**2. E-signature** - name menu > My e-signature: draw (mouse, touch, stylus; clear, redraw, preview) or upload PNG/JPG
+  (max 2 MB, at least 60x20 px). Empty drawings are refused on the screen and on the server (ink check).
+  The image is served only to signed-in users (`index.php?api=signature`) and printed above the signer's name on the
+  Request Form, Purchase Order, Request for Cash Fund, Incident Report, Service Invoice, SOA and Acknowledgement Receipt.
+
+**3. Corrective Maintenance replaces PMS** (preventive maintenance removed completely: reminders, last PMS date, setting)
+- Statuses Reported -> Under Inspection -> Under Repair -> Completed -> (verification) returned to service; Cancelled for
+  garage reports made by mistake. Every change is kept in `maintenance_events` (status history with mechanic and actor).
+- Sources: garage report (photos required) or trip incident (created automatically; Minor/Major assessment chooses the mechanic).
+- Truck availability: the truck is Under Maintenance from the report until a **Passed operational verification**;
+  "Completed" alone never makes it available. A failed verification sends the record back to Under Repair.
+- One unresolved record per truck and one active repair per mechanic, enforced by unique keys in the database.
+- Parts requests, labor/outside costs and evidence files per record; dashboard shows trucks under corrective
+  maintenance, open repair requests and recently completed repairs.
+
+**4. Mechanic Masterlist** - ID (MEC-###), name, contact, specialization, availability (Available / Assigned /
+  Unavailable with reason), active flag; add, edit, search, filter, activate/deactivate. Assignment is a dropdown of
+  Available mechanics; an assigned mechanic cannot be set Unavailable or deactivated. No mechanic logins.
+
+**5. Map (fixes the OpenStreetMap 403)** - cause: the `Referrer-Policy: same-origin` header (tile servers received no
+  referrer) and the old `{s}.tile.openstreetmap.org` address. Now `strict-origin-when-cross-origin` and MapTiler tiles
+  with the required attribution and logo; key and style come from `.env`. Place search and address lookup use MapTiler
+  geocoding (Philippines, cached in the browser session, run only on Search/click). Without a key the map shows a notice
+  and addresses are typed (manual fallback).
+- New Trip Request is now its own page (Trip Management > New trip) with numbered sections: client and schedule,
+  pickup and destination (map, search, pins, address confirmation), cargo details, assignment preview, attachments,
+  and a live summary. Attachments are stored with the trip ("Trip Request Document").
+
+**6. UI/UX redesign** - new design system (`layout.css`, `login.css`, `app.css`): dark sidebar in the order Dashboard,
+  Trip Management, Truck / Driver / Client / Mechanic Masterlists, Corrective Maintenance, then the rest; status strips,
+  bordered panels, tables with search and numbered pagination, one filter dialog per list (Apply / Reset), details
+  drawers with next step and history, loading / empty / error states, responsive layout. Deep links such as
+  `?open=` are used once and removed from the address so saving does not reopen the same form.
+
+**7. Printable forms** - all forms use the company logo (`public/assets/img/logo.svg`/`.png`, redrawn from the low-
+  resolution reference, so it is an approximation) and print CSS; blank rows like the paper forms. New printable
+  Acknowledgement Receipt for client payments (amount in words, form of payment). Layouts follow PDF #13 closely but
+  are not exact reproductions.
+
+**8. Notifications** - states Unread / Read / Resolved / Archived (nothing is deleted), unread count on the bell,
+  details, Resolve from the bell, Notifications history page, tasks resolve themselves when the work is done.
+
+**9. In-app dialogs** - no browser alert / confirm / prompt anywhere (logout uses the in-app confirmation).
+
+**10-17. Demonstration scripts** - new `automation/` folder (blocked from the web by `.htaccess`), Python + Playwright like `tests/`:
+- `script1_init_accounts.py`: creates or checks the role accounts through the Admin screens (idempotent), passwords
+  generated and saved only in `automation/.credentials.json`; optional login check of each new account.
+- `script2_demo.py`: demonstrates every objective through the screens and re-checks each result from the server;
+  fictional demo data with fixed identifiers (reused, never duplicated); unfinished work from an earlier run is continued;
+  sample attachments are generated when missing; printed forms saved as PDF; report in `automation/reports/`.
+- Results are PASSED (done and confirmed after reload), FAILED or SKIPPED (with the reason). Login codes are typed by
+  the operator by default (`--otp-source mailpit` exists only for a local test computer).
+
+**Verification done in the development workspace (honest status)**
+- Email: the full login flow was tested against a local SMTP test inbox (Mailpit). Delivery through Gmail could not be
+  tested from the workspace (no internet SMTP); run `php scripts/test_email.php you@gmail.com` on your PC.
+- Map: the tile and search requests were tested with the MapTiler servers simulated; real MapTiler tiles could not be
+  loaded from the workspace. Check on your PC with your key (guide E). Script 2 reports the map as SKIPPED without a key.
+- `tests/system_test.py`, `tests/e2e_workflow.py` and `tests/formula_test.php` were not changed; they still test
+  features removed in revision 1 (payroll, PMS) and fail at those steps.
+
+## 2026-11-04 (system revision: masterlists, simplified trip workflow, objective alignment)
+Reference files: PDF #14 (objectives), PDF #12 (workflow), PDF #11 (system requirements), PDF #13 (form formats).
+Client dummy data: CAR CARRIER and CONTAINER MONITORING 2026 workbooks (only the fields the system needs).
+
+**Database (new install required, see "Install / upgrade" below)**
+- `database/schema.sql` and `database/extension.sql` rewritten (35 tables). Masterlists are central and every
+  transaction refers to them by foreign key: `vehicles` (trucks), `personnel` (drivers and helpers), `clients`
+  (+ `client_rates` per truck type). Unique keys on plate number, client company name, driver/helper name + type.
+- Availability is enforced in the database, not only in the screen: table `trip_assignments` has one row per
+  reserved truck/driver/helper (primary key = resource), so the same resource can never be on two active trips.
+  CHECK constraints on statuses and amounts (stock cannot go below zero), foreign keys on all links,
+  one checklist per trip attempt, one billing per trip, one fund request per trip attempt.
+- New `database/seed_masterlists.sql` (optional): 29 trucks (15 Car Carrier, 7 Container, 7 Wing Van),
+  62 drivers, 18 helpers and 13 clients taken from the client workbooks. Clients start as "Incomplete"
+  (documents and rates are not in the workbooks).
+- Removed `database/migrations/` (old upgrade files for the previous schema; they do not apply to the new one).
+
+**Masterlists**
+- Trucks: truck number, plate, type, registration/insurance dates, regular driver/helper, status history,
+  last PMS date. Status is computed by the system (Available, Assigned, On Trip, Under Maintenance) plus a manual
+  Unavailable with reason. "Under Maintenance" always has an open maintenance job behind it.
+- Drivers & Helpers: license number/expiry for drivers, availability (Available, Assigned, On Trip, Unavailable).
+- Clients: company profile, contact, TIN, payment terms, required documents (signature, company profile,
+  SEC/DTI, business permit, BIR 2303) uploaded as files, per-km rate and minimum charge per truck type.
+  Status: Incomplete -> Pending Rate -> Active / Inactive. Only Active clients can be chosen for trips.
+- All forms use dropdowns from the masterlists; deactivation is soft (history is kept).
+
+**Trip workflow (PDF #12, simplified)**
+- Statuses: Pending Review, Awaiting Resources, Pre-Assigned, Ready for Dispatch, Dispatched, In Transit,
+  On Hold - Incident Reported, For Reschedule, Completed, Cancelled, Rejected. Each trip shows a progress
+  stepper and a timeline.
+- Operations Head reviews (approve or reject with reason). Approval auto-assigns truck, driver and helper
+  (same truck type, Available, no open repair; regular crew first; then fewest completed trips in the last 30 days;
+  helper required for Container/Wing Van, second driver optional for Car Carrier). If nothing is free the trip is
+  "Awaiting Resources" and is assigned automatically when a resource becomes free. Manual reassignment with reason.
+- If an assigned truck or person becomes unavailable, the system re-assigns or moves the trip back to Awaiting Resources.
+- Pre-dispatch checklist (57 items, "Mark all OK" helper); any NOT OK keeps the trip from Ready for Dispatch and
+  notifies Motorpool. Confirm Dispatch needs Ready for Dispatch + Released fund (checked again on the server).
+- Pickup/drop-off are chosen on a map (Leaflet + OpenStreetMap, vendored in `public/assets/vendor/leaflet/`);
+  distance is entered in km and used for billing. Map tiles need internet.
+- Completion requires Waybill and Acknowledgement Receipt files and a completion time not earlier than dispatch.
+- Incidents: Minor (truck stays on the trip; Confirm Repair -> Resume) or Major (truck Under Maintenance, trip
+  For Reschedule; after repair: Reschedule -> second attempt -> new checklist -> Confirm Redispatch).
+  Printable incident report.
+
+**Funds, billing, finance, purchasing, maintenance**
+- Trip fund: preset categories (Admin > Fund categories) + added lines; Ops Head approves or rejects; rejected
+  requests are corrected and resubmitted; Finance releases (payment voucher + expense); liquidation records returned cash.
+  Printable Request for Cash Fund (PDF #13 format).
+- Billing: draft created at dispatch from the client's per-km rate (minimum charge applies) + additional charges;
+  becomes For Billing on completion; Billing verifies Waybill + Acknowledgement Receipt, finalizes the Service Invoice
+  (due date = invoice date + client terms); collections require an uploaded receipt; Partially Paid / Paid; SOA print.
+- Purchasing: parts requests from Motorpool released from stock; purchase orders route to Finance (up to the
+  approval limit, default 10,000) or Admin (above); budget is checked and reserved atomically, otherwise
+  "Rejected - Insufficient Budget"; partial receiving; Finance pays received value. PO print with e-signature.
+- Maintenance: incident repairs, on-premise repairs (photos required), monthly PMS reminders, Confirm Repair
+  requires details and evidence; parts and labor costs go to expenses.
+- Reports & Analytics: trips, fleet (downtime from status history), money (revenue, expenses, profit per trip,
+  receivables aging), stock; filters with Apply/Reset; comparison with previous period.
+
+**Removed (not needed by the objectives, or by instruction)**
+- Payroll, Attendance, Cash Advance & Balances (module, pages, role `payroll`, tables).
+- English/Tagalog language switch (`public/assets/js/i18n.js`, `public/assets/js/i18n/`, `users.language`).
+- Per-role account limits, arrival checklist, 15-minute minimum checklist time, container/wing van client steps,
+  saved routes table, Formula Settings computation lists (replaced by simple Settings + Fund categories).
+- Duplicate/stale files: `backend/Modules/*.php` (top level), `backend/Modules/Inspections/`,
+  `public/assets/js/modules/*.js` (top level), `backend/Core/TripFunds.php`.
+
+**"Pending company confirmation" items settled into final rules**
+- Auto-assign priority (C01), allowance categories (C02), dispatch order (C03), budget (one active Purchasing budget
+  set by Finance, C05), checklist (all items OK, no minimum time, C06), redispatch fund optional (C07),
+  PMS monthly instead of km-based (C08), 5 units per car carrier trip default (C09), billing per-km rate + minimum,
+  VAT shown at 12% on the invoice, due date from client terms (C10), partial receiving allowed (C11), 30-day expiry
+  reminders (C12), access per role in `backend/Core/Access.php` (C13), payroll removed (C14), Ops Head may reject a
+  request (C17), client steps removed (C18), liquidation kept (C19), Awaiting Resources with automatic assignment (C20),
+  billing documents = Waybill + Acknowledgement Receipt. No `TODO PENDING COMPANY CONFIRMATION` marks remain in code.
+- Note: `docs/PENDING_COMPANY_CONFIRMATION.md`, `docs/`, `guide/`, `README.md` and `README-initial.md` were not
+  modified (project rule) and still describe the previous version. `config/formulas.php` was not modified; the
+  system reads only these defaults from it: purchase approval limit, document/license reminder days, payment terms,
+  km per liter, diesel price and units per trip (its payroll and computation-list values are no longer used).
+
+**Install / upgrade**
+- New install: import `database/schema.sql`, then `database/extension.sql`, then (optional) `database/seed_masterlists.sql`;
+  create the first Admin with `public/install.php` or `php scripts/create_user.php admin USERNAME "FULL NAME"`.
+- The old database and the old backup in `storage/backups/` are for the previous schema and cannot be restored into this version.
+
+**Verification (what was actually run)**
+- Separate API script (outside the project) covering all workflows, role restrictions and database safeguards: 124 passed, 0 failed.
+- Browser smoke test of every page and tab for every role: no JavaScript errors. Browser end-to-end flow
+  (client -> trip -> fund -> dispatch -> completion -> invoice -> payment -> reports): 24 passed, 0 failed.
+- Existing project tests were run without modification and do NOT pass, because they test removed features:
+  `tests/formula_test.php` stops at `Settings::fuelCost()` (Formula Settings removed); `tests/e2e_workflow.py`
+  stops when it cannot create/login the `payroll` role; `tests/system_test.py` (`--mode xampp --no-browser`):
+  33 passed, 3 failed (all 3 are the payroll account), then stops at the account stage.
+
 ## 2026-11-02 (security, limit bawat role, mapa)
 - **Lock ng account:** 5 maling password kahit saang computer = naka-lock nang 15 minuto (dati: bawat browser lang).
   Ang "Reset password" ng Admin ay nag-a-unlock din.

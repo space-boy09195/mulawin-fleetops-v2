@@ -12,20 +12,17 @@ final class Data {
     public static function me(): array {
         core('Access');
         $u = currentUser();
-        $notes = []; $unread = 0;
-        try {
-            $notes = many(db(), 'SELECT id, category, message, page, is_read, created_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 40', [$u['id']]);
-            $unread = (int)one(db(), 'SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND is_read=0', [$u['id']])['n'];
-        } catch (Throwable $e) { error_log('Notifications unavailable: ' . $e->getMessage()); }
-        // Wika ng screen (en o tl). Kapag hindi pa na-import ang migration, English muna (hindi nasisira ang login).
-        try { $u['language'] = (string)(one(db(), 'SELECT language FROM users WHERE id=?', [$u['id']])['language'] ?? 'en'); }
-        catch (Throwable $e) { $u['language'] = 'en'; }
-        // Admin: may recovery code na ba? (null = hindi pa na-import ang migration ng account security)
+        $bell = ['items' => [], 'unread' => 0, 'active' => 0];
+        try { core('Notify'); $bell = Notify::forUser(db(), $u['id']); }
+        catch (Throwable $e) { error_log('Notifications unavailable: ' . $e->getMessage()); }
+        // Admin: is there a recovery code already?
         if ($u['role'] === 'admin') { core('AccountSecurity'); $u['recovery_ready'] = AccountSecurity::hasRecovery($u['id']); }
+        $u['has_signature'] = (bool)(one(db(), 'SELECT signature_document_id FROM users WHERE id=?', [$u['id']])['signature_document_id'] ?? null);
         return [
             'ok' => true, 'user' => $u, 'csrf' => $_SESSION['csrf'] ?? '',
             'nav' => Access::navFor($u), 'sections' => Access::SECTIONS,
-            'notifications' => $notes, 'unread' => $unread,
+            'notifications' => $bell['items'], 'unread' => $bell['unread'], 'activeNotifications' => $bell['active'],
+            'mapKey' => envValue('MAPTILER_API_KEY'), 'mapStyle' => envValue('MAPTILER_STYLE', 'streets-v4') ?: 'streets-v4',
             'company' => ['name' => envValue('COMPANY_NAME', 'R P MULAWIN TRUCKING SERVICE'),
                           'address' => envValue('COMPANY_ADDRESS', '#086-A Purok 2 Brgy. Luyos Tanauan City, Batangas')],
             'truckTypes' => TRUCK_TYPES, 'passwordMin' => PASSWORD_MIN_LENGTH, 'roles' => ROLE_LABELS,

@@ -1,40 +1,52 @@
-/* assets/js/modules/general/documents.js — Document Management (FMS PDF II.M and II.O).
-   Upload one or many files (bulk), link them to a record, set expiry, search and download.
+/* assets/js/modules/general/documents.js — DOCUMENTS
+   One place to find every uploaded file you are allowed to see (trip documents, OR/CR,
+   insurance, client accreditation, receipts, photos ...), with expiry reminders.
+   Most files are attached on their own screens (trip completion, client profile, repair);
+   here you can also upload company files and truck / driver / client documents.
    Backend: backend/Modules/General/Documents.php */
 'use strict';
 App.page('documents', {
   title: 'Documents',
-  subtitle: 'OR/CR, insurance, contracts, forms, waybills, receipts and photos. Files are private and checked by role before download.',
+  subtitle: 'Search, view and download the files linked to trips, trucks, clients and transactions.',
   render(ctx) {
-    const d = ctx.data, docs = d.documents || [];
-    const labels = { trip: 'Trip', vehicle: 'Truck', personnel: 'Driver / helper', client: 'Client', maintenance: 'Maintenance job', inspection: 'Inspection (checklist)', purchase: 'Purchase request', parts: 'Part', fund: 'Fund request', expense: 'Expense', payable: 'Account payable', voucher: 'Payment voucher', billing: 'Invoice', waybill: 'Waybill', payroll: 'Payroll period', administrative: 'Administrative (not linked)' };
+    const d = ctx.data, q = ctx.query;
     if (d.uploadTypes.length) {
-      ctx.tools.innerHTML = '<button class="btn btn-sm btn-primary" id="upl"><i class="bi bi-upload"></i> Upload</button>';
-      document.getElementById('upl').onclick = () => UI.modal('Upload documents', UI.fields([
-        { name: 'files', label: 'Files (PDF, JPG, PNG, WebP; up to 10 MB each; up to 20 at once)', type: 'file', multiple: true, required: true, col: 12, attrs: 'accept=".pdf,.jpg,.jpeg,.png,.webp"' },
-        { name: 'category', label: 'Category', type: 'select', required: true, options: UI.list(d.categories), col: 6 },
-        { name: 'entity_type', label: 'Attach to', type: 'select', required: true, options: d.uploadTypes.map(t => [t, labels[t] || t]), col: 6 },
-        { name: 'entity_id', label: 'Record ID number', type: 'number', min: 1, col: 6, help: 'The # / ID of the trip, truck, job, etc. (leave blank for Administrative)' },
-        { name: 'expires_on', label: 'Expiry date (if any)', type: 'date', col: 6, help: 'For OR/CR, insurance, permits, contracts' },
-        { name: 'notes', label: 'Description', col: 12 }]), async (x, form) => {
-        const fd = new FormData();
-        [...form.querySelector('input[type=file]').files].forEach(f => fd.append('files[]', f));
-        ['category', 'entity_type', 'entity_id', 'expires_on', 'notes'].forEach(k => fd.append(k, x[k] || ''));
-        UI.result(await App.upload(fd)); App.route();
-      }, { submit: 'Upload' });
+      const b = document.createElement('button'); b.className = 'btn btn-sm btn-primary'; b.innerHTML = '<i class="bi bi-upload"></i> Upload';
+      b.onclick = () => {
+        const wrap = UI.modal('Upload documents', UI.fields([
+          { name: 'entity_type', label: 'Belongs to', type: 'select', required: true, col: 6, options: d.uploadTypes.map(t => [t, d.entityLabels[t]]) },
+          { name: 'entity_id', label: 'Record', type: 'select', col: 6, options: [] },
+          { name: 'category', label: 'Category', type: 'select', options: UI.list(d.categories), required: true, col: 6 },
+          { name: 'expires_on', label: 'Expiry date (for reminders)', type: 'date', col: 6 },
+          { name: 'notes', label: 'Description', col: 12 },
+          { name: 'files', label: 'Files (PDF, JPG, PNG; up to 20 at a time)', type: 'file', multiple: true, required: true, col: 12, attrs: 'accept="application/pdf,image/*"' }]),
+          async (x, form) => {
+            if (x.entity_type !== 'company' && !x.entity_id) throw new Error('Choose the record.');
+            const fd = new FormData(); ['entity_type', 'entity_id', 'category', 'expires_on', 'notes'].forEach(k => fd.append(k, x[k] || ''));
+            if (x.entity_type === 'company') fd.set('entity_id', '');
+            [...form.querySelector('[name=files]').files].forEach(f => fd.append('files[]', f));
+            UI.result(await App.upload(fd)); App.route();
+          }, { submit: 'Upload' });
+        const type = wrap.querySelector('[name=entity_type]'), rec = wrap.querySelector('[name=entity_id]');
+        const fill = () => { const list = d.records[type.value] || []; rec.innerHTML = type.value === 'company' ? '<option value="">(not linked)</option>' : '<option value="">Choose…</option>' + list.map(r => `<option value="${r.id}">${UI.esc(r.label)}</option>`).join(''); rec.disabled = type.value === 'company'; };
+        type.onchange = fill; fill();
+      };
+      ctx.tools.append(b);
     }
-    const soon = docs.filter(x => x.days_left !== null && +x.days_left <= d.alertDays);
+    const rows = d.documents.filter(x => (!q.category || x.category === q.category) && (!q.entity_type || x.entity_type === q.entity_type)
+      && (!q.expiring || (x.days_left !== null && +x.days_left <= +d.alertDays)));
+    const expiring = d.documents.filter(x => x.days_left !== null && +x.days_left <= +d.alertDays);
     ctx.el.innerHTML = UI.cards([
-      { label: 'Documents', value: docs.length, icon: 'bi-folder2-open', color: 'green' },
-      { label: `Expiring within ${d.alertDays} days / expired`, value: soon.length, icon: 'bi-calendar-x', color: soon.length ? 'red' : 'green' },
-    ]);
-    const box = document.createElement('div'); ctx.el.append(box);
-    box.innerHTML = UI.table([['#', 'id'], ['File', 'original_filename'], ['Category', 'category'], ['Attached to', 'entity_type', (x, r) => UI.esc(labels[x] || x) + (r.entity_id ? ' #' + r.entity_id : '')],
-      ['Expiry', 'expires_on', (x, r) => x ? UI.date(x) + '<br>' + UI.days(r.days_left) : '—'], ['Description', 'notes'], ['Size', 'byte_size', (x) => (x / 1024).toFixed(0) + ' KB'], ['Uploaded by', 'uploader'], ['Date', 'created_at', 'datetime']], docs, {
-      id: 'docs', empty: 'No documents you can view yet.',
-      actions: () => UI.btn('open', 'View', 'outline-secondary', 'bi-eye') + UI.btn('dl', 'Download', 'outline-primary', 'bi-download'),
-      onAction: (act, x) => window.open('index.php?api=document_download&id=' + x.id + (act === 'open' ? '&inline=1' : ''), '_blank'),
-    });
-    UI.activate(box);
+      { label: 'Documents you can see', value: d.documents.length, icon: 'bi-folder2-open' },
+      { label: `Expiring within ${d.alertDays} days or expired`, value: expiring.length, icon: 'bi-calendar-x', color: 'red' },
+    ]) + UI.filterModal(ctx, [
+      { name: 'entity_type', label: 'Belongs to', type: 'select', options: Object.entries(d.entityLabels), col: 6 },
+      { name: 'category', label: 'Category', type: 'select', options: UI.list([...new Set(d.documents.map(x => x.category))].sort()), col: 6 },
+      { name: 'expiring', label: 'Expiry', type: 'select', options: [['1', 'Expiring / expired only']], col: 6 }])
+      + UI.table([['File', 'original_filename', (v, r) => `<a href="${UI.docUrl(r.id)}" target="_blank" rel="noopener">${UI.esc(v)}</a>`], ['Category', 'category'],
+        ['Belongs to', 'entity_type', (v) => UI.esc(d.entityLabels[v] || v)], ['Record', 'record_label'], ['Expiry', 'expires_on', (v, r) => v ? UI.date(v) + ' ' + UI.days(r.days_left) : '—'],
+        ['Description', 'notes'], ['Uploaded by', 'uploader'], ['Date', 'created_at', 'date']], rows,
+        { title: 'Documents', actions: () => UI.btn('dl', 'Download', 'outline-secondary'), onAction: (a, r) => { window.location = UI.docUrl(r.id, false); } });
+    UI.activate(ctx.el);
   },
 });

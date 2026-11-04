@@ -41,13 +41,17 @@ CREATE TABLE users (
   active TINYINT NOT NULL DEFAULT 1,
   last_login_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+<<<<<<< HEAD
   UNIQUE KEY uq_users_email (email),
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   INDEX idx_users_role (role, active),
   CONSTRAINT chk_users_role CHECK (role IN ('admin','operations_head','car_carrier_dispatcher','container_wingvan_dispatcher',
                                             'motorpool','purchasing','finance','billing','audit')),
   CONSTRAINT chk_users_shift CHECK (shift IS NULL OR shift IN ('Day','Night'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+<<<<<<< HEAD
 -- Email OTP login (second step after the password). Codes are stored hashed, expire,
 -- work once, and a new code cancels the older ones (invalidated_at).
 CREATE TABLE login_otps (
@@ -64,6 +68,8 @@ CREATE TABLE login_otps (
   INDEX idx_otp_user (user_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
 -- Activity log (Objective 4.2): who created, updated, approved or processed a record, with date and time.
 CREATE TABLE audit_events (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -84,12 +90,18 @@ CREATE TABLE notifications (
   user_id INT NOT NULL,
   category VARCHAR(60) NOT NULL,
   message VARCHAR(300) NOT NULL,
+<<<<<<< HEAD
   page VARCHAR(60) NULL COMMENT 'page opened from the notification',
   dedupe_key VARCHAR(120) NULL COMMENT 'same key = same task; resolving the task resolves it for everyone',
   state VARCHAR(10) NOT NULL DEFAULT 'Unread',
   read_at DATETIME NULL,
   resolved_at DATETIME NULL,
   resolved_by INT NULL COMMENT 'NULL = resolved automatically when the task was done',
+=======
+  page VARCHAR(60) NULL COMMENT 'page opened when clicked',
+  dedupe_key VARCHAR(120) NULL,
+  is_read TINYINT NOT NULL DEFAULT 0,
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id),
   FOREIGN KEY (resolved_by) REFERENCES users(id),
@@ -215,7 +227,11 @@ CREATE TABLE personnel (
 --   Available         -> can be assigned
 --   Assigned          -> reserved for a trip that has not left yet (system)
 --   On Trip           -> dispatched (system)
+<<<<<<< HEAD
 --   Under Maintenance -> open corrective maintenance record, until the repair is verified (system)
+=======
+--   Under Maintenance -> open repair or preventive maintenance (Motorpool / system)
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
 --   Unavailable       -> set by Ops Head / Admin / Motorpool (e.g. expired registration)
 -- ---------------------------------------------------------------------
 CREATE TABLE vehicles (
@@ -238,6 +254,10 @@ CREATE TABLE vehicles (
   assigned_helper_id INT NULL COMMENT 'regular helper',
   status VARCHAR(25) NOT NULL DEFAULT 'Available',
   status_reason VARCHAR(150) NULL,
+<<<<<<< HEAD
+=======
+  last_pms_date DATE NULL COMMENT 'last monthly Preventive Maintenance Service',
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   active TINYINT NOT NULL DEFAULT 1,
   notes VARCHAR(255) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

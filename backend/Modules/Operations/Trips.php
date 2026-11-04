@@ -44,7 +44,10 @@ final class Trips {
     public const UPDATE_TYPES = ['Progress', 'Loading', 'Unloading', 'Delivery', 'Delay', 'Other'];
     public const DELAY_CAUSES = ['Client', 'Pending Documents', 'Traffic', 'Weather', 'Operational', 'Other'];
     public const INCIDENT_TYPES = ['Breakdown', 'Flat Tire', 'Accident', 'Cargo Damage', 'Other'];
+<<<<<<< HEAD
     public const DOC_REQUEST = 'Trip Request Document';
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     public const DOC_WAYBILL = 'Waybill';
     public const DOC_AR = 'Acknowledgement Receipt';
 
@@ -60,7 +63,11 @@ final class Trips {
             'active' => fn() => many($p, self::select() . " WHERE t.status NOT IN ($closed) $scope ORDER BY t.scheduled_at, t.id", $scopeArgs),
             'history' => fn() => many($p, self::select() . " WHERE t.status IN ($closed) $scope $where ORDER BY t.scheduled_at DESC, t.id DESC LIMIT 1000", array_merge($scopeArgs, $args)),
             'incidents' => fn() => many($p, "SELECT i.*, t.trip_ref, t.status AS trip_status, v.plate_number, c.company_name AS client, ru.full_name AS reported_by_name,
+<<<<<<< HEAD
                     (SELECT au.full_name FROM users au WHERE au.id=i.assessed_by) AS assessed_by_name, m.job_ref, m.status AS job_status
+=======
+                    m.job_ref, m.status AS job_status
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
                 FROM incidents i JOIN trips t ON t.id=i.trip_id JOIN vehicles v ON v.id=i.vehicle_id JOIN clients c ON c.id=t.client_id
                 JOIN users ru ON ru.id=i.reported_by LEFT JOIN maintenance_jobs m ON m.incident_id=i.id
                 WHERE 1=1 $scope ORDER BY i.id DESC LIMIT 300", $scopeArgs),
@@ -250,14 +257,21 @@ final class Trips {
             $ref = refNumber('TRP', $id);
             run($p, 'UPDATE trips SET trip_ref=? WHERE id=?', [$ref, $id]);
             self::event($p, $u['id'], $id, $isOps ? 'trip created by Operations Head (Scenario A)' : 'delivery request encoded by dispatcher (Scenario B)', '', 'Pending Review');
+<<<<<<< HEAD
             // Optional supporting files from the New Trip Request page (booking / nomination, delivery order).
             Files::store($p, $u, 'attachments', 'trip', $id, self::DOC_REQUEST);
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             if ($isOps) {
                 run($p, 'UPDATE trips SET approved_by=?, approved_at=NOW() WHERE id=?', [$u['id'], $id]);
                 $res = self::approveAndAssign($p, $u, self::lockTrip($p, $id));
                 return ['trip_id' => $id, 'trip_ref' => $ref, 'message' => "Trip $ref created. " . $res];
             }
+<<<<<<< HEAD
             Notify::roles($p, ['operations_head'], 'Trip request', "New delivery request $ref from " . $u['full_name'] . ' is Pending Review.', 'trips', 'trip-review-' . $id);
+=======
+            Notify::roles($p, ['operations_head'], 'Trip request', "New delivery request $ref from " . $u['full_name'] . ' is Pending Review.', 'trips');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             return ['trip_id' => $id, 'trip_ref' => $ref, 'message' => "Request $ref sent to the Operations Head (Pending Review)."];
         });
     }
@@ -285,7 +299,10 @@ final class Trips {
             $row['dispatcher_role'] = dispatcherRoleFor($row['truck_type']);
             $cols = implode(',', array_map(fn($c) => "$c=?", array_keys($row)));
             run($p, "UPDATE trips SET $cols, approved_by=?, approved_at=NOW() WHERE id=?", array_merge(array_values($row), [$u['id'], $id]));
+<<<<<<< HEAD
             Notify::resolve($p, 'trip-review-' . $id);
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             self::event($p, $u['id'], $id, 'trip details confirmed by Operations Head', 'Pending Review', 'Pending Review', $row['truck_type'] . ', ' . $row['distance_km'] . ' km');
             return ['message' => self::approveAndAssign($p, $u, self::lockTrip($p, $id))];
         });
@@ -341,7 +358,11 @@ final class Trips {
         $trucks = many($p, "SELECT v.*, (SELECT COUNT(*) FROM trips x WHERE x.vehicle_id=v.id AND x.status='Completed' AND x.completed_at>=DATE_SUB(NOW(), INTERVAL 30 DAY)) AS recent
             FROM vehicles v WHERE v.active=1 AND v.truck_type=? AND v.status='Available'
               AND NOT EXISTS (SELECT 1 FROM trip_assignments a WHERE a.resource_type='vehicle' AND a.resource_id=v.id)
+<<<<<<< HEAD
               AND NOT EXISTS (SELECT 1 FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.open_key=1)
+=======
+              AND NOT EXISTS (SELECT 1 FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.status IN ('Reported','Ongoing'))
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             ORDER BY recent, v.id FOR UPDATE", [$t['truck_type']]);
         if (!$trucks) return ['ok' => false, 'reason' => 'No ' . $t['truck_type'] . ' truck is available.'];
         $free = function (string $type) use ($p): array {
@@ -385,7 +406,11 @@ final class Trips {
         $nm = array_column($names, 'full_name', 'id');
         self::event($p, $uid, (int)$t['id'], $mode === 'Auto' ? 'system auto-assigned truck and crew' : 'truck and crew assigned manually', $t['status'], $to,
             'Truck ' . $res['plate'] . '; driver ' . ($nm[$res['driver_id']] ?? '') . ($res['driver2_id'] ? '; driver 2 ' . ($nm[$res['driver2_id']] ?? '') : '') . ($res['helper_id'] ? '; helper ' . ($nm[$res['helper_id']] ?? '') : ''));
+<<<<<<< HEAD
         if ($to === 'Pre-Assigned') Notify::roles($p, [$t['dispatcher_role']], 'Pre-assigned trip', $t['trip_ref'] . ' is pre-assigned to truck ' . $res['plate'] . '. Submit the fund request and do the pre-dispatch checklist.', 'trips', 'trip-prep-' . $t['id'] . '-' . $t['attempt_number']);
+=======
+        if ($to === 'Pre-Assigned') Notify::roles($p, [$t['dispatcher_role']], 'Pre-assigned trip', $t['trip_ref'] . ' is pre-assigned to truck ' . $res['plate'] . '. Submit the fund request and do the pre-dispatch checklist.', 'trips');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     }
 
     /**
@@ -536,7 +561,10 @@ final class Trips {
                 $redispatch ? 'Attempt #' . $t['attempt_number'] . ', linked to the original trip and incident report.' : '');
             FleetState::reconcile($p, (int)$t['vehicle_id'], $u['id'], 'Dispatched ' . $t['trip_ref']);
             BillingDraft::createFor($p, $t);
+<<<<<<< HEAD
             Notify::resolve($p, 'trip-prep-' . $id . '-*');
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             Notify::roles($p, ['operations_head', 'finance', 'billing'], $redispatch ? 'Trip redispatched' : 'Trip dispatched', $t['trip_ref'] . ' left with truck ' . $v['plate_number'] . '.', 'trips');
             return ['message' => ($redispatch ? 'Redispatch confirmed (Second Attempt).' : 'Dispatch confirmed.') . ' The billing draft was generated.'];
         });
@@ -583,6 +611,7 @@ final class Trips {
             Files::store($p, $u, 'attachments', 'incident', $iid, 'Incident Document');
             // Appears at once in the Maintenance module (PDF #12: "magrereflect sa Maintenance Module").
             $jid = insert($p, 'maintenance_jobs', ['job_ref' => 'TMP-' . bin2hex(random_bytes(6)), 'vehicle_id' => $t['vehicle_id'], 'source' => 'Incident',
+<<<<<<< HEAD
                 'incident_id' => $iid, 'trip_id' => $id, 'problem' => cut($row['problem'] . ' @ ' . $row['location'], 500), 'status' => 'Reported',
                 'reported_on' => substr($row['incident_at'], 0, 10), 'priority' => 'High', 'created_by' => $u['id']]);
             run($p, 'INSERT INTO maintenance_events (maintenance_job_id, from_status, to_status, details, actor_id) VALUES (?,?,?,?,?)', [$jid, null, 'Reported', 'from incident ' . $iref, $u['id']]);
@@ -590,6 +619,13 @@ final class Trips {
             self::setStatus($p, $u['id'], $t, 'On Hold - Incident Reported', 'incident reported', $iref . ': ' . $row['problem'] . ' @ ' . $row['location']);
             $plate = one($p, 'SELECT plate_number FROM vehicles WHERE id=?', [$t['vehicle_id']])['plate_number'];
             Notify::roles($p, ['motorpool'], 'Incident reported', "$iref on $plate (" . $t['trip_ref'] . '): ' . $row['problem'] . ' @ ' . $row['location'] . '. Please assess (Minor or Major).', 'maintenance', 'incident-assess-' . $iid);
+=======
+                'incident_id' => $iid, 'trip_id' => $id, 'problem' => cut($row['problem'] . ' @ ' . $row['location'], 500), 'status' => 'Reported', 'created_by' => $u['id']]);
+            run($p, 'UPDATE maintenance_jobs SET job_ref=? WHERE id=?', [refNumber('JOB', $jid), $jid]);
+            self::setStatus($p, $u['id'], $t, 'On Hold - Incident Reported', 'incident reported', $iref . ': ' . $row['problem'] . ' @ ' . $row['location']);
+            $plate = one($p, 'SELECT plate_number FROM vehicles WHERE id=?', [$t['vehicle_id']])['plate_number'];
+            Notify::roles($p, ['motorpool'], 'Incident reported', "$iref on $plate (" . $t['trip_ref'] . '): ' . $row['problem'] . ' @ ' . $row['location'] . '. Please assess (Minor or Major).', 'maintenance');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             Notify::roles($p, ['operations_head'], 'Incident reported', "$iref on $plate (" . $t['trip_ref'] . '). Trip is On Hold.', 'trips');
             return ['incident_id' => $iid, 'message' => "Incident $iref reported. The trip is On Hold while Maintenance assesses the damage."];
         });
@@ -608,7 +644,10 @@ final class Trips {
             self::setStatus($p, $u['id'], $t, 'In Transit', 'trip resumed after minor repair', 'Continuation of the original trip (not a second attempt).');
             FleetState::reconcile($p, (int)$t['vehicle_id'], $u['id'], 'Resumed ' . $t['trip_ref']);
             Notify::roles($p, ['operations_head'], 'Trip resumed', $t['trip_ref'] . ' resumed after a minor repair.', 'trips');
+<<<<<<< HEAD
             Notify::resolve($p, 'trip-resume-' . $inc['id']);
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             return ['message' => 'Trip resumed. Status: In Transit.'];
         });
     }
@@ -638,7 +677,10 @@ final class Trips {
             run($p, "UPDATE trips SET attempt_number=?, status='Pre-Assigned', scheduled_at=? WHERE id=?", [$next, $when, $id]);
             self::event($p, $u['id'], $id, 'trip rescheduled', 'For Reschedule', 'Pre-Assigned', 'Attempt #' . $next . ' on ' . $when . ' with truck ' . $v['plate_number'] . '. Pre-dispatch checklist again; Confirm Redispatch records the Second Attempt.');
             Notify::roles($p, ['operations_head'], 'Trip rescheduled', $t['trip_ref'] . ' rescheduled to ' . $when . '.', 'trips');
+<<<<<<< HEAD
             foreach (many($p, 'SELECT id FROM incidents WHERE trip_id=?', [$id]) as $ii) Notify::resolve($p, 'trip-reschedule-' . $ii['id']);
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             return ['message' => 'Trip rescheduled (attempt #' . $next . '). Do the pre-dispatch checklist again, then Confirm Redispatch.'];
         });
     }
@@ -674,7 +716,11 @@ final class Trips {
             FleetState::release($p, $id);
             $truck = FleetState::reconcile($p, (int)$t['vehicle_id'], $u['id'], 'Trip ' . $t['trip_ref'] . ' completed');
             BillingDraft::forBilling($p, $id);
+<<<<<<< HEAD
             Notify::roles($p, ['billing'], 'For billing', $t['trip_ref'] . ' is completed. Verify the documents and finalize the billing.', 'billing', 'billing-verify-' . $id);
+=======
+            Notify::roles($p, ['billing'], 'For billing', $t['trip_ref'] . ' is completed. Verify the documents and finalize the billing.', 'billing');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             Notify::roles($p, ['operations_head'], 'Trip completed', $t['trip_ref'] . ' completed.', 'trips');
             $auto = self::assignWaiting($p, $u);
             return ['message' => 'Trip completed. Truck is now ' . $truck . '. The billing record moved to For Billing.' . ($auto ? ' ' . $auto : '')];
@@ -690,7 +736,10 @@ final class Trips {
             self::mustBeStatus($t, self::BEFORE_DISPATCH, 'cancel');
             run($p, 'UPDATE trips SET cancel_reason=? WHERE id=?', [$reason, $id]);
             self::setStatus($p, $u['id'], $t, 'Cancelled', 'trip cancelled', $reason);
+<<<<<<< HEAD
             Notify::resolve($p, 'trip-review-' . $id); Notify::resolve($p, 'trip-prep-' . $id . '-*');
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             $freed = FleetState::release($p, $id);
             if ($freed) FleetState::reconcile($p, $freed, $u['id'], 'Released by cancelled ' . $t['trip_ref']);
             BillingDraft::cancel($p, $id);

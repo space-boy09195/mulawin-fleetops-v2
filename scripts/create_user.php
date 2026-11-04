@@ -2,9 +2,14 @@
 /*
  * scripts/create_user.php — create an account from the command line.
  * Usage (XAMPP on Windows, inside the project folder):
+<<<<<<< HEAD
  *   C:\xampp\php\php.exe scripts\create_user.php admin myusername "Full Name" name@gmail.com
  *   (dispatchers: add Day or Night at the end)
  * You type the password yourself (twice). Every login also needs the code sent to the email.
+=======
+ *   C:\xampp\php\php.exe scripts\create_user.php admin myusername "Full Name"
+ * A random password is shown ONCE. The user must change it at first login.
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
  * Forgotten password: scripts/reset_password.php.
  * Roles: admin, operations_head, car_carrier_dispatcher, container_wingvan_dispatcher,
  *        motorpool, purchasing, finance, billing, audit
@@ -23,6 +28,7 @@ try {
     $p = db();
     if ($role !== 'admin' && !one($p, "SELECT id FROM users WHERE role='admin' AND active=1 LIMIT 1")) throw new RuntimeException('Create an admin account first.');
     if (one($p, 'SELECT id FROM users WHERE username=?', [$username])) throw new RuntimeException('Username already exists.');
+<<<<<<< HEAD
     if (one($p, 'SELECT id FROM users WHERE email=?', [$email])) throw new RuntimeException('Another account already uses this email.');
     $pass = askNewPassword();
     $shift = roleIsDispatcher($role) ? (in_array($argv[5] ?? '', ['Day', 'Night'], true) ? $argv[5] : 'Day') : null;
@@ -30,6 +36,11 @@ try {
     $p->prepare('INSERT INTO users (username, email, password_hash, full_name, role, shift) VALUES (?,?,?,?,?,?)')
       ->execute([$username, $email, password_hash($pass, PASSWORD_DEFAULT), cut($name, 100), $role, $shift]);
     audit($p, null, 'Access', 'user ' . $p->lastInsertId(), 'account created from the server (scripts/create_user.php)', "$username / $role");
+=======
+    $shift = roleIsDispatcher($role) ? (in_array($argv[4] ?? '', ['Day', 'Night'], true) ? $argv[4] : 'Day') : null;
+    $p->prepare('INSERT INTO users (username, password_hash, full_name, role, shift, must_change_password) VALUES (?,?,?,?,?,1)')
+      ->execute([$username, password_hash($pass, PASSWORD_DEFAULT), cut($name, 100), $role, $shift]);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     $p->commit();
     echo "Account created: $username ($role). Login codes will be sent to $email.\n";
 } catch (Throwable $e) { if (isset($p) && $p->inTransaction()) $p->rollBack(); fwrite(STDERR, $e->getMessage() . "\n"); exit(1); }

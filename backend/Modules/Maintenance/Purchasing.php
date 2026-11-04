@@ -45,7 +45,11 @@ final class Purchasing {
             'movements' => fn() => many($p, "SELECT sm.*, pt.part_number, pt.description, v.plate_number, u.full_name AS actor FROM stock_movements sm JOIN parts pt ON pt.id=sm.part_id
                 LEFT JOIN vehicles v ON v.id=sm.vehicle_id JOIN users u ON u.id=sm.actor_id ORDER BY sm.id DESC LIMIT 500"),
             'trucks' => fn() => many($p, 'SELECT id, plate_number, truck_number FROM vehicles WHERE active=1 ORDER BY plate_number'),
+<<<<<<< HEAD
             'openJobs' => fn() => many($p, "SELECT m.id, m.job_ref, m.vehicle_id, m.problem FROM maintenance_jobs m WHERE m.status IN ('Under Inspection','Under Repair') ORDER BY m.id DESC"),
+=======
+            'openJobs' => fn() => many($p, "SELECT m.id, m.job_ref, m.vehicle_id, m.problem FROM maintenance_jobs m WHERE m.status IN ('Reported','Ongoing') ORDER BY m.id DESC"),
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             'budget' => fn() => one($p, "SELECT *, amount-reserved_amount-spent_amount AS available FROM budgets WHERE status='Active' AND category='Purchasing' ORDER BY id DESC LIMIT 1") ?? [],
         ]);
         $data['threshold'] = Settings::value('purchase_approval_threshold');
@@ -163,7 +167,11 @@ final class Purchasing {
         return transaction(function (PDO $p) use ($u, $vid, $jobId, $purpose, $lines) {
             $v = one($p, 'SELECT plate_number FROM vehicles WHERE id=? AND active=1', [$vid]);
             must((bool)$v, 'Choose an active truck.');
+<<<<<<< HEAD
             if ($jobId) must((bool)one($p, "SELECT id FROM maintenance_jobs WHERE id=? AND vehicle_id=? AND status IN ('Under Inspection','Under Repair')", [$jobId, $vid]), 'The maintenance record does not belong to this truck or is already closed.');
+=======
+            if ($jobId) must((bool)one($p, "SELECT id FROM maintenance_jobs WHERE id=? AND vehicle_id=? AND status IN ('Reported','Ongoing')", [$jobId, $vid]), 'The maintenance record does not belong to this truck or is already closed.');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             foreach ($lines as $l) must((bool)one($p, 'SELECT id FROM parts WHERE id=? AND active=1', [$l['part_id']]), 'Unknown part in the list.');
             $rid = insert($p, 'part_requests', ['request_ref' => 'TMP-' . bin2hex(random_bytes(6)), 'vehicle_id' => $vid, 'maintenance_job_id' => $jobId,
                 'purpose' => $purpose, 'status' => 'Requested', 'requested_by' => $u['id']]);
@@ -171,7 +179,11 @@ final class Purchasing {
             run($p, 'UPDATE part_requests SET request_ref=? WHERE id=?', [$ref, $rid]);
             foreach ($lines as $l) insert($p, 'part_request_lines', ['part_request_id' => $rid, 'part_id' => $l['part_id'], 'quantity' => $l['quantity']]);
             audit($p, $u['id'], 'Inventory', 'request ' . $rid, 'parts request submitted', $ref . ' for ' . $v['plate_number']);
+<<<<<<< HEAD
             Notify::roles($p, ['purchasing'], 'Parts request', "$ref: parts requested for " . $v['plate_number'] . '. Check the stock and release.', 'purchasing', 'parts-req-' . $rid);
+=======
+            Notify::roles($p, ['purchasing'], 'Parts request', "$ref: parts requested for " . $v['plate_number'] . '. Check the stock and release.', 'purchasing');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             return ['message' => "Request $ref sent to the Purchasing Officer."];
         });
     }
@@ -207,7 +219,10 @@ final class Purchasing {
             run($p, 'UPDATE part_requests SET status=?, processed_by=?, processed_at=NOW(), notes=COALESCE(?, notes) WHERE id=?', [$status, $u['id'], $notes, $id]);
             audit($p, $u['id'], 'Inventory', 'request ' . $id, 'parts request processed', $r['request_ref'] . ' -> ' . $status);
             Notify::user($p, (int)$r['requested_by'], 'Parts request', $r['request_ref'] . ' is ' . $status . '.', 'purchasing');
+<<<<<<< HEAD
             Notify::resolve($p, 'parts-req-' . $id);
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             return ['message' => 'Request is now ' . $status . '.' . ($status !== 'Released' ? ' Create a purchase order for the missing items if needed.' : '')];
         });
     }
@@ -219,7 +234,10 @@ final class Purchasing {
             $r = one($p, 'SELECT * FROM part_requests WHERE id=? FOR UPDATE', [$id]);
             must($r && $r['status'] === 'Requested', 'Only a request that is still Requested can be cancelled.', 409);
             run($p, "UPDATE part_requests SET status='Cancelled' WHERE id=?", [$id]);
+<<<<<<< HEAD
             Notify::resolve($p, 'parts-req-' . $id);
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             audit($p, $u['id'], 'Inventory', 'request ' . $id, 'parts request cancelled', $r['request_ref']);
             return ['message' => 'Request cancelled.'];
         });
@@ -247,7 +265,11 @@ final class Purchasing {
             foreach ($lines as $l) insert($p, 'purchase_order_lines', ['purchase_order_id' => $id, 'part_id' => $l['part_id'], 'quantity' => $l['quantity'],
                 'unit_price' => $l['unit_price'], 'line_total' => number_format($l['quantity'] * (float)$l['unit_price'], 2, '.', '')]);
             audit($p, $u['id'], 'Purchasing', 'po ' . $id, 'purchase order request created', "$ref PHP " . number_format($total, 2) . ' -> ' . ($approver === 'finance' ? 'Finance' : 'Admin'));
+<<<<<<< HEAD
             Notify::roles($p, [$approver], 'PO approval', "Purchase order $ref (PHP " . number_format($total, 2) . ') is waiting for your approval.', 'purchasing', 'po-approve-' . $id);
+=======
+            Notify::roles($p, [$approver], 'PO approval', "Purchase order $ref (PHP " . number_format($total, 2) . ') is waiting for your approval.', 'purchasing');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             return ['message' => "Purchase order $ref (PHP " . number_format($total, 2) . ') sent to ' . ($approver === 'finance' ? 'Finance (PHP ' . number_format($threshold) . ' and below)' : 'the Admin (above PHP ' . number_format($threshold) . ')') . ' for approval.'];
         });
     }
@@ -266,7 +288,10 @@ final class Purchasing {
             $o = one($p, 'SELECT * FROM purchase_orders WHERE id=? FOR UPDATE', [$id]);
             must((bool)$o, 'Purchase order not found.', 404);
             must($o['status'] === 'Pending Approval', 'This purchase order is ' . $o['status'] . '.', 409);
+<<<<<<< HEAD
             Notify::resolve($p, 'po-approve-' . $id);
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             must($u['role'] === $o['approver_role'], 'This purchase order is routed to ' . ($o['approver_role'] === 'finance' ? 'Finance' : 'the Admin') . ' (approval limit rule).', 403);
             if ($decision === 'reject') {
                 run($p, "UPDATE purchase_orders SET status='Rejected', decided_by=?, decided_at=NOW(), decision_notes=? WHERE id=?", [$u['id'], $notes, $id]);
@@ -288,7 +313,11 @@ final class Purchasing {
                 [$b['id'], $u['id'], $notes, $id]);
             audit($p, $u['id'], 'Purchasing', 'po ' . $id, 'purchase order approved', $o['po_ref'] . ': PHP ' . $o['total_amount'] . ' reserved from the budget');
             Notify::user($p, (int)$o['requested_by'], 'PO approved', $o['po_ref'] . ' is approved. Print the PO and proceed with the purchase.', 'purchasing');
+<<<<<<< HEAD
             Notify::roles($p, ['finance'], 'PO pending payment', $o['po_ref'] . ' (PHP ' . number_format((float)$o['total_amount'], 2) . ') was approved and is Pending Payment.', 'finance', 'po-pay-' . $id);
+=======
+            Notify::roles($p, ['finance'], 'PO pending payment', $o['po_ref'] . ' (PHP ' . number_format((float)$o['total_amount'], 2) . ') was approved and is Pending Payment.', 'finance');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             return ['message' => 'Approved. PHP ' . number_format((float)$o['total_amount'], 2) . ' is reserved from the purchasing budget. The PO document is ready to print.'];
         });
     }

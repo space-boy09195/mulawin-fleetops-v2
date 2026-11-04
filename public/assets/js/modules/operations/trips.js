@@ -172,6 +172,7 @@ const TripUI = {
       async (d) => { const r = await App.api('Trips.create', d); UI.result(r); App.route(); if (r.trip_id) setTimeout(() => TripUI.open(r.trip_id), 400); },
       { submit: isOps ? 'Create trip and auto-assign' : 'Send request', onShow: (w, f) => TripUI.wireForm(w, f) });
   },
+<<<<<<< HEAD
   /**
    * New Trip Request page (#trips?new=1): one page with numbered sections instead of a modal,
    * because this is the main form of the system (client -> pickup/destination -> cargo -> assignment -> files).
@@ -247,6 +248,8 @@ const TripUI = {
       finally { btn.disabled = false; btn.innerHTML = label; }
     };
   },
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   review(t) {
     const wrap = UI.modal('Review request ' + UI.esc(t.trip_ref), `<div class="small text-muted mb-2">Requested by ${UI.esc(t.created_by_name)} for <b>${UI.esc(t.client)}</b>. Complete the truck type, km and details, then confirm. The system assigns the truck and crew.</div>
       ${TripUI.datalists()}${UI.fields(TripUI.deliveryFields(t, { needsKm: true }))}`,
@@ -365,7 +368,11 @@ const TripUI = {
       <div style="grid-column:1/3"><b>LOCATION / PERSON/S INVOLVED IN INCIDENT:</b> ${UI.esc(i.location)}${i.persons_involved ? ' / ' + UI.esc(i.persons_involved) : ''}</div>
       <div style="grid-column:1/3"><b>REASON:</b> ${UI.esc(i.reason || '')}</div></div>
       <div><b>INCIDENT DETAILS:</b></div><div class="pf-box" style="min-height:160px">${UI.esc(i.problem)}\n\n${UI.esc(i.details)}</div>
+<<<<<<< HEAD
       <div class="pf-signs">${UI.sign('Reported by (name and signature)', i.reported_by_name, i.reported_by)}${UI.sign('Received by (name and signature)', i.assessed_by_name || '', i.assessed_by)}</div>
+=======
+      <div class="pf-signs">${UI.sign('Reported by (name and signature)', i.reported_by_name)}${UI.sign('Received by (name and signature)', i.assessed_by_name || '')}</div>
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
       <div class="mt-2"><b>RECOMMENDATION:</b></div><div class="pf-box">${UI.esc(i.recommendation || '')}${i.severity ? '\nAssessment: ' + UI.esc(i.severity) + ' damage' : ''}</div>
       <div class="pf-signs">${UI.sign('Recommended by (name and signature)')}${UI.sign('Approved by (name and signature)')}</div>`, { number: i.incident_ref });
   },
@@ -475,6 +482,7 @@ const TripUI = {
 };
 
 App.page('trips', {
+<<<<<<< HEAD
   title: 'Trip Management',
   subtitle: 'Create trips, follow their progress and do the next step. Click a trip for details.',
   render(ctx) {
@@ -483,6 +491,15 @@ App.page('trips', {
     if (d.can.create) {
       const b = document.createElement('button'); b.className = 'btn btn-sm btn-primary';
       b.innerHTML = `<i class="bi bi-plus-lg"></i> ${UI.role('operations_head') ? 'New trip' : 'New trip request'}`; b.onclick = () => App.go('trips', { new: 1 }); ctx.tools.append(b);
+=======
+  title: 'Trips',
+  subtitle: 'Create trips, follow their progress and do the next step. Click a trip for details.',
+  render(ctx) {
+    const d = TripUI.data = ctx.data;
+    if (d.can.create) {
+      const b = document.createElement('button'); b.className = 'btn btn-sm btn-primary';
+      b.innerHTML = `<i class="bi bi-plus-lg"></i> ${UI.role('operations_head') ? 'New trip' : 'New trip request'}`; b.onclick = () => TripUI.create(); ctx.tools.append(b);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     }
     const counts = (s) => d.active.filter(t => s.includes(t.status)).length;
     ctx.el.innerHTML = UI.cards([
@@ -503,14 +520,22 @@ App.page('trips', {
     ];
     const tabs = [
       ['active', `Active trips (${d.active.length})`, (body) => {
+<<<<<<< HEAD
         body.innerHTML = `<div class="board-tools"><div class="table-search"><i class="bi bi-search"></i><input class="form-control form-control-sm" type="search" placeholder="Search trip no., client, place, truck…" id="tbSearch" aria-label="Search active trips"></div>
+=======
+        body.innerHTML = `<div class="board-tools"><input class="form-control form-control-sm" placeholder="Search active trips…" id="tbSearch">
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
           ${['operations_head', 'car_carrier_dispatcher', 'container_wingvan_dispatcher', 'finance', 'motorpool'].includes(App.me.user.role) ? '<div class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" id="tbMine"><label class="form-check-label small" for="tbMine">Only trips waiting for me</label></div>' : ''}
           <span class="small text-muted ms-auto" id="tbCount"></span></div><div class="trip-board" id="tbBoard"></div>`;
         const draw = () => {
           const q = (body.querySelector('#tbSearch').value || '').toLowerCase(), mineOnly = body.querySelector('#tbMine')?.checked;
           const rows = d.active.filter(t => (!q || [t.trip_ref, t.client, t.pickup_point, t.delivery_point, t.plate_number, t.driver_name, t.status, t.consignee].join(' ').toLowerCase().includes(q)) && (!mineOnly || TripUI.needsMe(t)));
           body.querySelector('#tbCount').textContent = rows.length + ' trip(s)';
+<<<<<<< HEAD
           body.querySelector('#tbBoard').innerHTML = rows.length ? rows.map(TripUI.card).join('') : `<div class="panel" style="grid-column:1/-1"><div class="table-empty"><i class="bi bi-signpost-split"></i>${d.active.length ? 'No active trip matches the search.' : 'No active trips.' + (d.can.create ? ' Use “New trip” to encode a client delivery.' : '')}</div></div>`;
+=======
+          body.querySelector('#tbBoard').innerHTML = rows.length ? rows.map(TripUI.card).join('') : '<div class="table-empty">No active trips.</div>';
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
           body.querySelectorAll('[data-trip]').forEach(c => c.onclick = () => TripUI.open(c.dataset.trip));
         };
         body.querySelector('#tbSearch').oninput = draw; body.querySelector('#tbMine')?.addEventListener('change', draw); draw();
@@ -530,7 +555,11 @@ App.page('trips', {
     ];
     const box = document.createElement('div'); ctx.el.append(box);
     UI.tabs(box, tabs, ctx.query.q || ctx.query.status || ctx.query.from ? 'history' : null);
+<<<<<<< HEAD
     const once = UI.takeQuery(ctx, 'open');
     if (once.open) TripUI.open(once.open);
+=======
+    if (ctx.query.open) TripUI.open(ctx.query.open);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   },
 });

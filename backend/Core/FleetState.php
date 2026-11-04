@@ -43,15 +43,25 @@ final class FleetState {
                         WHERE a.resource_type='vehicle' AND a.resource_id=? LIMIT 1", [$vehicleId]);
     }
 
+<<<<<<< HEAD
     /** Unresolved corrective maintenance record of a truck (not cancelled and not yet verified). */
     public static function openJob(PDO $p, int $vehicleId): ?array {
         return one($p, "SELECT id, job_ref, source, severity, status FROM maintenance_jobs WHERE vehicle_id=? AND open_key=1 LIMIT 1", [$vehicleId]);
+=======
+    /** Open repair / PMS job of a truck. */
+    public static function openJob(PDO $p, int $vehicleId): ?array {
+        return one($p, "SELECT id, job_ref, source, severity, status FROM maintenance_jobs WHERE vehicle_id=? AND status IN ('Reported','Ongoing') ORDER BY id LIMIT 1", [$vehicleId]);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     }
 
     /**
      * Recomputes the status a truck should have:
+<<<<<<< HEAD
      *   unresolved repair record    -> Under Maintenance, until the repair is VERIFIED
      *                                  (an incident not yet assessed, or a Minor roadside repair, keeps it On Trip)
+=======
+     *   open garage repair / PMS    -> Under Maintenance (a minor roadside repair keeps it On Trip)
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
      *   trip on the road            -> On Trip
      *   reserved for a trip         -> Assigned
      *   manually Unavailable        -> stays Unavailable
@@ -63,8 +73,13 @@ final class FleetState {
         $v = one($p, 'SELECT status FROM vehicles WHERE id=? FOR UPDATE', [$vehicleId]);
         must((bool)$v, 'Truck not found.', 404);
         $trip = self::activeTrip($p, $vehicleId);
+<<<<<<< HEAD
         $job = one($p, "SELECT id FROM maintenance_jobs WHERE vehicle_id=? AND open_key=1
                         AND NOT (source='Incident' AND (severity IS NULL OR severity='Minor')) LIMIT 1", [$vehicleId]);
+=======
+        $job = one($p, "SELECT id FROM maintenance_jobs WHERE vehicle_id=? AND status='Ongoing'
+                        AND NOT (source='Incident' AND severity='Minor') ORDER BY id LIMIT 1", [$vehicleId]);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         if ($job) $next = 'Under Maintenance';
         elseif ($trip && in_array($trip['status'], self::ON_ROAD, true)) $next = 'On Trip';
         elseif ($trip) $next = 'Assigned';
@@ -119,7 +134,11 @@ final class FleetState {
         $v = one($p, 'SELECT plate_number, active, status FROM vehicles WHERE id=?', [$vehicleId]);
         if (!$v || !(int)$v['active']) return 'not an active truck';
         if (in_array($v['status'], ['Under Maintenance', 'Unavailable'], true)) return $v['plate_number'] . ' is ' . $v['status'];
+<<<<<<< HEAD
         if ($j = self::openJob($p, $vehicleId)) return $v['plate_number'] . ' has an unresolved repair (' . $j['job_ref'] . ', ' . $j['status'] . ($j['status'] === 'Completed' ? ', waiting for verification' : '') . ')';
+=======
+        if (self::openJob($p, $vehicleId)) return $v['plate_number'] . ' has an open maintenance job';
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         $a = one($p, "SELECT t.trip_ref, a.trip_id FROM trip_assignments a JOIN trips t ON t.id=a.trip_id WHERE a.resource_type='vehicle' AND a.resource_id=?", [$vehicleId]);
         if ($a && (int)$a['trip_id'] !== (int)$exceptTrip) return $v['plate_number'] . ' is already on ' . $a['trip_ref'];
         return null;

@@ -22,6 +22,11 @@ final class Settings {
     public const DEFS = [
         'purchase_approval_threshold' => ['Purchase approval limit', 10000, 'PHP',
             'Purchase orders up to this amount go to Finance for approval; above it they go to the Admin (PDF #12).', 1, 100000000],
+<<<<<<< HEAD
+=======
+        'pms_interval_months'         => ['Preventive Maintenance Service every', 1, 'month(s)',
+            'Monthly PMS of every truck regardless of mileage (PDF #13, question 7).', 1, 12],
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         'document_alert_days'         => ['Remind about expiring truck documents', 30, 'days before',
             'OR/CR registration, insurance and uploaded documents with an expiry date.', 1, 365],
         'license_alert_days'          => ['Remind about expiring driver licenses', 30, 'days before', '', 1, 365],

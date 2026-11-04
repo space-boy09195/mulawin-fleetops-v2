@@ -17,13 +17,18 @@ declare(strict_types=1);
 
 final class Access {
     /** Small headings in the menu (only shown when the role has pages under them). */
+<<<<<<< HEAD
     public const SECTIONS = ['Masterlists', 'Maintenance', 'Accounting', 'Records'];
+=======
+    public const SECTIONS = ['Operations', 'Masterlists', 'Maintenance', 'Accounting', 'Records'];
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
 
     public static function pages(): array {
         $D = ['car_carrier_dispatcher', 'container_wingvan_dispatcher'];
         $all = array_keys(ROLE_LABELS);
         return [
             // id => [label, icon, section, module, js file, roles]
+<<<<<<< HEAD
             'dashboard'   => ['Dashboard', 'bi-grid-1x2', null, 'Analytics', 'general/dashboard', $all],
             'trips'       => ['Trip Management', 'bi-signpost-split', null, 'Trips', 'operations/trips',
                               array_merge(['admin', 'operations_head', 'motorpool', 'billing', 'audit'], $D)],
@@ -54,6 +59,36 @@ final class Access {
                               ['admin', 'operations_head', 'motorpool', 'purchasing', 'finance', 'billing', 'audit']],
             'notifications' => ['Notifications', 'bi-bell', 'Records', 'Admin', 'general/notifications', $all],
             'admin'       => ['User Management', 'bi-people', 'Records', 'Admin', 'administration/admin', ['admin', 'audit']],
+=======
+            'dashboard'   => ['Dashboard', 'bi-speedometer2', null, 'Analytics', 'general/dashboard', $all],
+
+            'trips'       => ['Trips', 'bi-signpost-split', 'Operations', 'Trips', 'operations/trips',
+                              array_merge(['admin', 'operations_head', 'motorpool', 'billing', 'audit'], $D)],
+            'funds'       => ['Trip Funds', 'bi-cash-coin', 'Operations', 'Funds', 'accounting/funds',
+                              array_merge(['admin', 'operations_head', 'finance', 'audit'], $D)],
+
+            'trucks'      => ['Trucks', 'bi-truck', 'Masterlists', 'Fleet', 'operations/fleet',
+                              array_merge(['admin', 'operations_head', 'motorpool', 'purchasing', 'audit'], $D)],
+            'crew'        => ['Drivers & Helpers', 'bi-person-badge', 'Masterlists', 'Fleet', 'operations/fleet',
+                              array_merge(['admin', 'operations_head', 'audit'], $D)],
+            'clients'     => ['Clients', 'bi-building', 'Masterlists', 'Clients', 'operations/clients',
+                              array_merge(['admin', 'operations_head', 'billing', 'finance', 'audit'], $D)],
+
+            'maintenance' => ['Maintenance', 'bi-tools', 'Maintenance', 'Maintenance', 'maintenance/maintenance',
+                              ['admin', 'operations_head', 'motorpool', 'audit']],
+            'purchasing'  => ['Parts & Purchasing', 'bi-box-seam', 'Maintenance', 'Purchasing', 'maintenance/purchasing',
+                              ['admin', 'motorpool', 'purchasing', 'finance', 'audit']],
+
+            'billing'     => ['Billing & Collection', 'bi-receipt', 'Accounting', 'Billing', 'accounting/billing',
+                              ['admin', 'billing', 'finance', 'audit']],
+            'finance'     => ['Finance', 'bi-wallet2', 'Accounting', 'Finance', 'accounting/finance',
+                              ['admin', 'finance', 'audit']],
+
+            'documents'   => ['Documents', 'bi-folder2-open', 'Records', 'Documents', 'general/documents', $all],
+            'reports'     => ['Reports', 'bi-graph-up', 'Records', 'Analytics', 'general/reports',
+                              ['admin', 'operations_head', 'motorpool', 'purchasing', 'finance', 'billing', 'audit']],
+            'admin'       => ['Administration', 'bi-gear', 'Records', 'Admin', 'administration/admin', ['admin', 'audit']],
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         ];
     }
 

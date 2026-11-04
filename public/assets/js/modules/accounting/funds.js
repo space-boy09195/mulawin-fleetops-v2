@@ -15,11 +15,19 @@ const FundUI = {
       <table><thead><tr><th>Expense category</th><th class="num">Amount</th></tr></thead><tbody>${f.lines.map(l => `<tr><td>${UI.esc(l.category_name)}${+l.is_preset ? '' : ' (added)'}</td><td class="num">${UI.money(l.amount)}</td></tr>`).join('')}
       <tr><th>TOTAL</th><th class="num">${UI.money(f.amount)}</th></tr></tbody></table>
       <div class="pf-note">NOTE: SUBJECT FOR LIQUIDATION</div><div><b>REMARKS:</b></div><div class="pf-box" style="min-height:34px">${UI.esc(f.notes || '')}</div>
+<<<<<<< HEAD
       <div class="pf-signs">${UI.sign('Requested by', f.requested_by_name, f.requested_by)}${UI.sign('Approved by (Operations Head)', f.approved_by_name || '', f.approved_by)}</div>
       <div class="drawer-h mt-3">FOR ACCOUNTING USE</div>
       <div><b>ACCOUNTING REMARKS:</b></div><div class="pf-box" style="min-height:34px">${f.voucher_number ? 'Released ' + UI.date(f.released_on) + ' via ' + UI.esc(f.payment_method) + ', voucher ' + UI.esc(f.voucher_number) + (f.reference_number ? ', ref ' + UI.esc(f.reference_number) : '') + (f.cheque_number ? ', cheque ' + UI.esc(f.cheque_number) : '') : ''}
 ${f.liquidation_status === 'Liquidated' ? 'Liquidated: spent ' + UI.money(f.liquidated_amount) + ', returned ' + UI.money(f.returned_amount) : ''}</div>
       <div class="pf-signs">${UI.sign('Checked by (Finance)', f.released_by_name || '', f.released_by)}${UI.sign('Approved by')}</div>`, { number: f.fund_ref });
+=======
+      <div class="pf-signs">${UI.sign('Requested by', f.requested_by_name)}${UI.sign('Approved by (Operations Head)', f.approved_by_name || '')}</div>
+      <div class="drawer-h mt-3">FOR ACCOUNTING USE</div>
+      <div><b>ACCOUNTING REMARKS:</b></div><div class="pf-box" style="min-height:34px">${f.voucher_number ? 'Released ' + UI.date(f.released_on) + ' via ' + UI.esc(f.payment_method) + ', voucher ' + UI.esc(f.voucher_number) + (f.reference_number ? ', ref ' + UI.esc(f.reference_number) : '') + (f.cheque_number ? ', cheque ' + UI.esc(f.cheque_number) : '') : ''}
+${f.liquidation_status === 'Liquidated' ? 'Liquidated: spent ' + UI.money(f.liquidated_amount) + ', returned ' + UI.money(f.returned_amount) : ''}</div>
+      <div class="pf-signs">${UI.sign('Checked by (Finance)', f.released_by_name || '')}${UI.sign('Approved by')}</div>`, { number: f.fund_ref });
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   },
 };
 

@@ -261,6 +261,7 @@ CREATE TABLE parts (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================================
+<<<<<<< HEAD
 -- MECHANIC MASTERLIST  (supports Corrective Maintenance only)
 -- availability: Available | Assigned (has an active repair, set by the system) | Unavailable (manual, with reason)
 -- =====================================================================
@@ -287,6 +288,11 @@ CREATE TABLE mechanics (
 -- The truck stays out of service until the repair is VERIFIED (verified_at), not just Completed.
 -- open_key: only ONE unresolved record per truck (database rule).
 -- active_mechanic: a mechanic can have only ONE active repair at a time (database rule).
+=======
+-- VEHICLE MAINTENANCE  (Objective 2.1 - 2.3; PDF #12 Vehicle Maintenance Management)
+-- source: Incident (from a trip incident report), On-Premise (garage), Preventive (monthly PMS)
+-- status: Reported -> Ongoing -> Completed (or Cancelled)
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
 -- =====================================================================
 CREATE TABLE maintenance_jobs (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -295,6 +301,7 @@ CREATE TABLE maintenance_jobs (
   source VARCHAR(15) NOT NULL,
   incident_id INT NULL UNIQUE,
   trip_id INT NULL,
+<<<<<<< HEAD
   problem VARCHAR(500) NOT NULL COMMENT 'reported problem or damage',
   reported_on DATE NOT NULL COMMENT 'date reported',
   priority VARCHAR(10) NOT NULL DEFAULT 'Normal',
@@ -310,6 +317,17 @@ CREATE TABLE maintenance_jobs (
   verified_at DATETIME NULL COMMENT 'operational check passed: truck returned to service',
   verified_by INT NULL,
   verification_notes VARCHAR(500) NULL,
+=======
+  problem VARCHAR(500) NOT NULL COMMENT 'description of damage or problem',
+  inspection_date DATE NULL,
+  severity VARCHAR(10) NULL,
+  assigned_to VARCHAR(150) NULL COMMENT 'mechanic or service provider',
+  status VARCHAR(15) NOT NULL DEFAULT 'Reported',
+  expected_completion DATE NULL COMMENT 'expected vehicle availability',
+  repair_performed TEXT NULL,
+  completed_on DATE NULL,
+  remarks VARCHAR(500) NULL,
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   started_by INT NULL, started_at DATETIME NULL,
   completed_by INT NULL, completed_at DATETIME NULL,
   created_by INT NULL,
@@ -319,6 +337,7 @@ CREATE TABLE maintenance_jobs (
   FOREIGN KEY (vehicle_id) REFERENCES vehicles(id),
   FOREIGN KEY (incident_id) REFERENCES incidents(id),
   FOREIGN KEY (trip_id) REFERENCES trips(id),
+<<<<<<< HEAD
   FOREIGN KEY (mechanic_id) REFERENCES mechanics(id),
   FOREIGN KEY (started_by) REFERENCES users(id),
   FOREIGN KEY (completed_by) REFERENCES users(id),
@@ -345,6 +364,13 @@ CREATE TABLE maintenance_events (
   FOREIGN KEY (mechanic_id) REFERENCES mechanics(id),
   FOREIGN KEY (actor_id) REFERENCES users(id),
   INDEX idx_mevent_job (maintenance_job_id, id)
+=======
+  FOREIGN KEY (started_by) REFERENCES users(id),
+  FOREIGN KEY (completed_by) REFERENCES users(id),
+  INDEX idx_mjob_status (vehicle_id, status),
+  CONSTRAINT chk_mjob_source CHECK (source IN ('Incident','On-Premise','Preventive')),
+  CONSTRAINT chk_mjob_status CHECK (status IN ('Reported','Ongoing','Completed','Cancelled'))
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE maintenance_costs (

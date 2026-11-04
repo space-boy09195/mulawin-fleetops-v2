@@ -22,14 +22,22 @@ final class Actions {
     /**
      * Modules grouped by DEPARTMENT (folder backend/Modules/<Department>/).
      *   Operations     : Fleet (trucks, drivers & helpers), Clients, Trips (with Inspections/Checklist.php)
+<<<<<<< HEAD
      *   Maintenance    : Maintenance (corrective), Mechanics (masterlist), Purchasing (truck parts, inventory, purchase orders)
+=======
+     *   Maintenance    : Maintenance, Purchasing (truck parts, inventory, purchase orders)
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
      *   Accounting     : Funds (trip funds), Billing, Finance
      *   General        : Analytics (dashboard and reports), Documents
      *   Administration : Admin (users, settings, activity log, backup)
      */
     public const MODULES = [
         'Fleet' => 'Operations', 'Clients' => 'Operations', 'Trips' => 'Operations',
+<<<<<<< HEAD
         'Maintenance' => 'Maintenance', 'Mechanics' => 'Maintenance', 'Purchasing' => 'Maintenance',
+=======
+        'Maintenance' => 'Maintenance', 'Purchasing' => 'Maintenance',
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         'Funds' => 'Accounting', 'Billing' => 'Accounting', 'Finance' => 'Accounting',
         'Analytics' => 'General', 'Documents' => 'General',
         'Admin' => 'Administration',

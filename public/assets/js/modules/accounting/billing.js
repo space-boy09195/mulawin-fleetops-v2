@@ -34,10 +34,15 @@ const BillUI = {
       ${UI.h('Client profile')}${UI.kv([['Client', `<b>${UI.esc(c.company_name)}</b>`], ['TIN', UI.e(c.tin)], ['Address', UI.e(c.business_address)], ['Contact', UI.esc([c.contact_person, c.contact_number, c.email].filter(Boolean).join(' · ') || '—')],
         ['Payment terms', c.payment_terms_days !== null ? c.payment_terms_days + ' days' : 'default']])}
       ${b.invoice_number ? UI.h('Invoice') + UI.kv([['Invoice no.', UI.esc(b.invoice_number)], ['Invoice date', UI.date(b.invoice_date)], ['Due date', UI.date(b.due_date)], ['Finalized by', UI.e(b.finalized_by_name)]]) : ''}
+<<<<<<< HEAD
       ${r.collections.length ? UI.h('Payments') + UI.table([['Date', 'payment_date', 'date'], ['Amount', 'amount', 'money'], ['Method', 'payment_method'], ['Reference', 'reference'], ['AR no.', 'ar_number'], ['By', 'recorded_by_name'],
         ['', 'id', (v) => `<button class="btn btn-sm btn-outline-secondary" data-ar="${v}"><i class="bi bi-printer"></i> Receipt</button>`]], r.collections, { plain: true }) : ''}`;
     const el = UI.drawer('Billing · ' + UI.esc(t.trip_ref), html, { subtitle: UI.esc(c.company_name) });
     el.querySelectorAll('[data-ar]').forEach(x => x.onclick = () => BillUI.printAR(r.collections.find(co => String(co.id) === x.dataset.ar), b, c));
+=======
+      ${r.collections.length ? UI.h('Payments') + UI.table([['Date', 'payment_date', 'date'], ['Amount', 'amount', 'money'], ['Method', 'payment_method'], ['Reference', 'reference'], ['AR no.', 'ar_number'], ['By', 'recorded_by_name']], r.collections) : ''}`;
+    const el = UI.drawer('Billing · ' + UI.esc(t.trip_ref), html, { subtitle: UI.esc(c.company_name) });
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     el.querySelectorAll('[data-rmc]').forEach(x => x.onclick = async () => { try { UI.result(await App.api('Billing.charge_remove', { charge_id: x.dataset.rmc })); BillUI.open(id); App.route(); } catch (e) { UI.toast(e.message, 'error'); } });
     el.querySelectorAll('[data-a]').forEach(x => x.onclick = () => {
       const a = x.dataset.a;
@@ -63,12 +68,17 @@ const BillUI = {
     UI.printForm('SERVICE INVOICE', `<div class="d-flex justify-content-between"><div><span class="chk">${''}</span>CASH SALES &nbsp; <span class="chk">✓</span>CHARGE SALES</div><div><b>Date:</b> ${UI.date(b.invoice_date)} &nbsp; <b>Due:</b> ${UI.date(b.due_date)}</div></div>
       <table><tr><th colspan="2">SERVICE TO:</th></tr><tr><td style="width:24%">Registered Name</td><td>${UI.esc(c.company_name)}</td></tr><tr><td>TIN</td><td>${UI.esc(c.tin || '')}</td></tr><tr><td>Business Address</td><td>${UI.esc(c.business_address || '')}</td></tr></table>
       <table><thead><tr><th>Item Description / Nature of Service</th><th class="num">Quantity</th><th class="num">Unit Cost / Price</th><th class="num">Amount</th></tr></thead>
+<<<<<<< HEAD
       <tbody>${lines.map(l => `<tr><td>${UI.esc(l[0])}</td><td class="num">${l[1]}</td><td class="num">${l[2]}</td><td class="num">${l[3]}</td></tr>`).join('')}${UI.pfBlank(4, lines.length, 10)}</tbody></table>
+=======
+      <tbody>${lines.map(l => `<tr><td>${UI.esc(l[0])}</td><td class="num">${l[1]}</td><td class="num">${l[2]}</td><td class="num">${l[3]}</td></tr>`).join('')}</tbody></table>
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
       <div class="d-flex gap-3"><table style="width:48%"><tr><td>VATable Sales</td><td class="num">${UI.money(vatable)}</td></tr><tr><td>VAT (${vat}%)</td><td class="num">${UI.money(vatAmt)}</td></tr>
         <tr><td>Zero-Rated Sales</td><td class="num">${UI.money(0)}</td></tr><tr><td>VAT-Exempt Sales</td><td class="num">${UI.money(vat > 0 ? 0 : total)}</td></tr></table>
       <table style="width:52%"><tr><td>Total Sales (VAT inclusive)</td><td class="num">${UI.money(total)}</td></tr><tr><td>Less: VAT</td><td class="num">${UI.money(vatAmt)}</td></tr>
         <tr><td>Amount: Net of VAT</td><td class="num">${UI.money(total - vatAmt)}</td></tr><tr><td>Add: VAT</td><td class="num">${UI.money(vatAmt)}</td></tr>
         <tr><th>TOTAL AMOUNT DUE</th><th class="num">${UI.money(total)}</th></tr></table></div>
+<<<<<<< HEAD
       <div class="pf-signs">${UI.sign('Received the amount of / Received by (client)')}${UI.sign('Authorized representative', b.finalized_by_name || '', b.finalized_by)}</div>`, { number: b.invoice_number });
   },
   /** Amount in words for receipts, e.g. 13875.5 -> "THIRTEEN THOUSAND EIGHT HUNDRED SEVENTY-FIVE PESOS AND 50/100". */
@@ -104,6 +114,9 @@ const BillUI = {
         <div class="pf-signs">${UI.sign('Cashier / Authorized Representative', co.recorded_by_name || '', co.recorded_by)}</div>
         <div class="pf-note">"THIS DOCUMENT IS NOT VALID FOR CLAIMING INPUT TAXES"</div>
       </div></div>`, { number: co.ar_number || '' });
+=======
+      <div class="pf-signs">${UI.sign('Received the amount of / Received by (client)')}${UI.sign('Authorized representative', b.finalized_by_name || '')}</div>`, { number: b.invoice_number });
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   },
   async printSOA(clientId) {
     const r = await App.api('Billing.soa', { client_id: clientId });
@@ -113,7 +126,11 @@ const BillUI = {
       <tbody>${r.invoices.map(x => `<tr><td>${UI.esc(x.invoice_number)}</td><td>${UI.date(x.invoice_date)}</td><td>${UI.date(x.due_date)}</td><td>${UI.esc(x.trip_ref)} / ${UI.esc(x.waybill_number || '')}</td>
         <td class="num">${UI.money(x.total_amount)}</td><td class="num">${UI.money(x.amount_paid)}</td><td class="num">${UI.money(x.balance)}</td><td class="num">${+x.days_overdue > 0 ? x.days_overdue : ''}</td></tr>`).join('')}
       <tr><th colspan="6">TOTAL BALANCE</th><th class="num">${UI.money(total)}</th><th></th></tr></tbody></table>
+<<<<<<< HEAD
       <div class="pf-signs">${UI.sign('Prepared by (Billing and Collection)', App.me.user.full_name, App.me.user.id)}${UI.sign('Received by (client)')}</div>`);
+=======
+      <div class="pf-signs">${UI.sign('Prepared by (Billing and Collection)', App.me.user.full_name)}${UI.sign('Received by (client)')}</div>`);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   },
 };
 

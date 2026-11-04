@@ -134,7 +134,10 @@ final class Billing {
             must($b['status'] === 'For Billing', 'Only records in For Billing can be finalized.', 409);
             must((bool)$b['docs_verified_at'], 'Verify the supporting documents first.', 409);
             must((float)$b['total_amount'] > 0, 'The billing amount is zero.', 409);
+<<<<<<< HEAD
             Notify::resolve($p, 'billing-verify-' . $b['trip_id']);
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             if ($number !== null) must(!one($p, 'SELECT id FROM billings WHERE invoice_number=? AND id<>?', [$number, $id]), 'Invoice number ' . $number . ' is already used.', 409);
             $number ??= refNumber('SI', $id);
             $c = one($p, 'SELECT company_name, payment_terms_days FROM clients WHERE id=?', [$b['client_id']]);

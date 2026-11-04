@@ -16,13 +16,19 @@ core('Mailer');
 core('Settings');
 core('AccountSecurity');
 core('Files');
+<<<<<<< HEAD
 core('Notify');
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
 
 final class Admin {
     public static function read(array $u, string $page, array $q): array {
         $p = db();
+<<<<<<< HEAD
         if ($page === 'notifications') return self::notificationsPage($u, $q);
         requireRole($u, 'admin', 'audit');
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         $from = self::d((string)($q['from'] ?? '')) ?? date('Y-m-d', strtotime('-30 days'));
         $to = self::d((string)($q['to'] ?? '')) ?? date('Y-m-d');
         $w = 'WHERE DATE(a.created_at) BETWEEN ? AND ?'; $args = [$from, $to];
@@ -36,7 +42,11 @@ final class Admin {
         $data['range'] = ['from' => $from, 'to' => $to];
         if (hasRole($u, 'admin')) {
             $data = mergeSections($data, [
+<<<<<<< HEAD
                 'users' => fn() => many($p, 'SELECT id, username, email, full_name, role, shift, active, last_login_at, created_at, (signature_document_id IS NOT NULL) AS has_signature FROM users ORDER BY active DESC, role, full_name'),
+=======
+                'users' => fn() => many($p, 'SELECT id, username, full_name, role, shift, active, must_change_password, last_login_at, created_at, (signature_document_id IS NOT NULL) AS has_signature FROM users ORDER BY active DESC, role, full_name'),
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
                 'fundCategories' => fn() => many($p, 'SELECT * FROM fund_categories ORDER BY sort_order, name'),
             ]);
             $data['settings'] = Settings::all();
@@ -72,6 +82,7 @@ final class Admin {
     }
 
     // ---------------------------------------------------------------- users
+<<<<<<< HEAD
     private static function emailField(array $d): string {
         $email = strtolower(field($d, 'email', 190));
         must((bool)filter_var($email, FILTER_VALIDATE_EMAIL), 'Enter a valid email address (the login code is sent there).');
@@ -79,6 +90,8 @@ final class Admin {
     }
 
     /** Admin creates or edits an account. The Admin sets the password (no temporary passwords). */
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     private static function userSave(array $u, array $d): array {
         requireRole($u, 'admin');
         $id = optId($d, 'id');
@@ -91,18 +104,30 @@ final class Admin {
             if ($id) {
                 if ($id === $u['id']) must($role === 'admin', 'You cannot remove your own Admin role.');
                 must((bool)one($p, 'SELECT id FROM users WHERE id=?', [$id]), 'User not found.', 404);
+<<<<<<< HEAD
                 run($p, 'UPDATE users SET full_name=?, email=?, role=?, shift=? WHERE id=?', [$name, $email, $role, $shift, $id]);
                 audit($p, $u['id'], 'Access', 'user ' . $id, 'account updated', "$name / $role" . ($shift ? " / $shift" : '') . ' / ' . Mailer::mask($email));
+=======
+                run($p, 'UPDATE users SET full_name=?, role=?, shift=? WHERE id=?', [$name, $role, $shift, $id]);
+                audit($p, $u['id'], 'Access', 'user ' . $id, 'account updated', "$name / $role" . ($shift ? " / $shift" : ''));
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
                 return ['message' => 'Account updated.'];
             }
             $username = field($d, 'username', 70);
             must((bool)preg_match('/^[a-zA-Z0-9_.-]{3,70}$/', $username), 'Username: 3-70 letters, numbers, dot, dash or underscore.');
             $pw = field($d, 'password', 255); self::strongPassword($pw);
             must(!one($p, 'SELECT id FROM users WHERE username=?', [$username]), 'Username already exists.', 409);
+<<<<<<< HEAD
             $id = insert($p, 'users', ['username' => $username, 'email' => $email, 'password_hash' => password_hash($pw, PASSWORD_DEFAULT),
                 'full_name' => $name, 'role' => $role, 'shift' => $shift]);
             audit($p, $u['id'], 'Access', 'user ' . $id, 'account created', "$username / $role / " . Mailer::mask($email));
             return ['id' => $id, 'message' => "Account $username created. Give the password to the user privately; each login also needs the code sent to " . Mailer::mask($email) . '.'];
+=======
+            $id = insert($p, 'users', ['username' => $username, 'password_hash' => password_hash($pw, PASSWORD_DEFAULT), 'full_name' => $name,
+                'role' => $role, 'shift' => $shift, 'must_change_password' => 1]);
+            audit($p, $u['id'], 'Access', 'user ' . $id, 'account created', "$username / $role");
+            return ['message' => 'Account created. The user must change the password at first login.'];
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         });
     }
 
@@ -124,11 +149,18 @@ final class Admin {
         requireRole($u, 'admin');
         $id = idField($d, 'user_id'); $pw = field($d, 'password', 255); self::strongPassword($pw);
         return transaction(function (PDO $p) use ($u, $id, $pw) {
+<<<<<<< HEAD
             must((bool)one($p, 'SELECT id FROM users WHERE id=?', [$id]), 'User not found.', 404);
             run($p, 'UPDATE users SET password_hash=? WHERE id=?', [password_hash($pw, PASSWORD_DEFAULT), $id]);
             AccountSecurity::passwordChanged($id);
             audit($p, $u['id'], 'Access', 'user ' . $id, 'password set by Admin', 'old sessions signed out');
             return ['message' => 'New password saved. Give it to the user privately; their old sessions were signed out.'];
+=======
+            run($p, 'UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?', [password_hash($pw, PASSWORD_DEFAULT), $id]);
+            AccountSecurity::passwordChanged($id);
+            audit($p, $u['id'], 'Access', 'user ' . $id, 'password reset by Admin');
+            return ['message' => 'Password reset. The user must change it at next login.'];
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         });
     }
 
@@ -139,7 +171,11 @@ final class Admin {
         return transaction(function (PDO $p) use ($u, $current, $new) {
             $row = one($p, 'SELECT password_hash FROM users WHERE id=?', [$u['id']]);
             must(password_verify($current, $row['password_hash']), 'Current password is wrong.', 403);
+<<<<<<< HEAD
             run($p, 'UPDATE users SET password_hash=? WHERE id=?', [password_hash($new, PASSWORD_DEFAULT), $u['id']]);
+=======
+            run($p, 'UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?', [password_hash($new, PASSWORD_DEFAULT), $u['id']]);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             $_SESSION['login_at'] = strtotime(AccountSecurity::passwordChanged($u['id']));
             audit($p, $u['id'], 'Access', 'user ' . $u['id'], 'own password changed');
             return ['message' => 'Password changed.'];
@@ -159,6 +195,7 @@ final class Admin {
     }
 
     /** E-signature image of an approver (printed on approved purchase orders). */
+<<<<<<< HEAD
     /**
      * Every user can save an e-signature: an uploaded PNG/JPG image or a drawing made in the
      * app (sent as PNG). It is stored privately (entity "user", not in the Documents list) and
@@ -195,6 +232,21 @@ final class Admin {
         return false;
     }
 
+=======
+    private static function signatureUpload(array $u, array $d): array {
+        must(hasRole($u, 'admin', 'finance'), 'Only purchase order approvers (Admin, Finance) need an e-signature.', 403);
+        must(Files::has('signature'), 'Choose the signature image (PNG or JPG).');
+        return transaction(function (PDO $p) use ($u) {
+            $ids = Files::store($p, $u, 'signature', 'company', null, 'User E-Signature', true);
+            $doc = one($p, 'SELECT mime_type FROM documents WHERE id=?', [$ids[0]]);
+            must(str_starts_with($doc['mime_type'], 'image/'), 'The signature must be an image (PNG or JPG).');
+            run($p, 'UPDATE users SET signature_document_id=? WHERE id=?', [$ids[0], $u['id']]);
+            audit($p, $u['id'], 'Access', 'user ' . $u['id'], 'e-signature uploaded');
+            return ['message' => 'E-signature saved. It will appear on the purchase orders you approve.'];
+        });
+    }
+
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     // ---------------------------------------------------------------- settings
     private static function settingSave(array $u, array $d): array {
         requireRole($u, 'admin');
@@ -250,6 +302,7 @@ final class Admin {
         fclose($fh);
         audit($p, $u['id'], 'Backup', $name, 'database backup created');
         return ['file' => $name, 'message' => 'Backup created. Download it and keep a copy outside this computer, together with the storage/private folder (uploaded files).'];
+<<<<<<< HEAD
     }
 
     // ---------------------------------------------------------------- notifications (every user, own only)
@@ -264,6 +317,8 @@ final class Admin {
             'counts' => array_column(many(db(), 'SELECT state, COUNT(*) AS n FROM notifications WHERE user_id=? GROUP BY state', [$u['id']]), 'n', 'state'),
             'states' => Notify::STATES,
         ];
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     }
 
     /** Mark read (one or all), or resolve / archive one notification. Only the user's own notifications. */

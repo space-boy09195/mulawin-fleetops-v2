@@ -1,6 +1,7 @@
 <?php
 /*
  * backend/Core/Notify.php  —  in-app notifications (bell icon)
+<<<<<<< HEAD
  * Pending approvals, trip updates, expiring documents and other important
  * activities (PDF #11 V.63).
  *
@@ -9,6 +10,10 @@
  *  - A notification made with a task key (dedupe_key) is RESOLVED AUTOMATICALLY for every
  *    receiver when the task is done (for example the trip request was reviewed).
  *  - Nothing is deleted: resolved and archived notifications stay in the history.
+=======
+ * Pending approvals, trip updates, expiring documents and other
+ * important activities (PDF #11 V.63).
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
  * A failed notification never stops the main transaction.
  */
 declare(strict_types=1);
@@ -41,6 +46,7 @@ final class Notify {
     public static function key(string $prefix): string { return $prefix . '-' . date('YmdHis') . '-' . bin2hex(random_bytes(2)); }
 
     /**
+<<<<<<< HEAD
      * The task behind the key is done: resolve its notification for everyone who received it.
      * A key ending in * resolves every key that starts with it (all rounds of the same task).
      */
@@ -66,6 +72,11 @@ final class Notify {
     /**
      * Daily reminders: expiring truck documents, driver licenses, uploaded documents and
      * low stock. Runs when a dashboard is opened; the key makes it once per item per day.
+=======
+     * Daily reminders: expiring truck documents, driver licenses, uploaded
+     * documents, low stock and PMS due. Runs when a dashboard is opened;
+     * dedupe_key makes it once per item per day.
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
      */
     public static function dailyReminders(PDO $p): void {
         try {
@@ -84,6 +95,14 @@ final class Notify {
             }
             foreach (many($p, 'SELECT id, part_number, description, quantity_on_hand, reorder_level FROM parts WHERE active=1 AND reorder_level > 0 AND quantity_on_hand <= reorder_level') as $pt) {
                 self::roles($p, ['purchasing'], 'Low stock', $pt['part_number'] . ' ' . $pt['description'] . ': ' . $pt['quantity_on_hand'] . ' left (reorder level ' . $pt['reorder_level'] . ')', 'purchasing', 'stock-' . $pt['id'] . '-' . $today);
+<<<<<<< HEAD
+=======
+            }
+            $months = max(1, (int)Settings::value('pms_interval_months'));
+            foreach (many($p, "SELECT id, plate_number, last_pms_date FROM vehicles WHERE active=1 AND (last_pms_date IS NULL OR DATE_ADD(last_pms_date, INTERVAL ? MONTH) <= CURRENT_DATE())
+                               AND NOT EXISTS (SELECT 1 FROM maintenance_jobs m WHERE m.vehicle_id=vehicles.id AND m.source='Preventive' AND m.status IN ('Reported','Ongoing'))", [$months]) as $v) {
+                self::roles($p, ['motorpool'], 'PMS due', $v['plate_number'] . ': monthly Preventive Maintenance Service is due (last: ' . ($v['last_pms_date'] ?? 'none recorded') . ').', 'maintenance', 'pms-' . $v['id'] . '-' . date('Y-m'));
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             }
         } catch (Throwable $e) { error_log('dailyReminders failed: ' . $e->getMessage()); }
     }

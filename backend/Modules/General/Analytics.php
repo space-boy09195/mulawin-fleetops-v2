@@ -39,6 +39,7 @@ final class Analytics {
         $r = $u['role'];
         $alerts = []; $cards = []; $charts = []; $tables = [];
         $alert = function (float $n, string $text, string $page, string $level = 'warning') use (&$alerts) { if ($n > 0) $alerts[] = ['text' => (int)$n . ' ' . $text, 'page' => $page, 'level' => $level]; };
+<<<<<<< HEAD
         // ---- facts read straight from the records
         $fs = array_column(many($p, "SELECT status, COUNT(*) AS n FROM vehicles WHERE active=1 GROUP BY status"), 'n', 'status');
         $truckTotal = array_sum(array_map('intval', $fs));
@@ -88,6 +89,38 @@ final class Analytics {
 
         if (in_array($r, ['admin', 'operations_head'], true)) {
             $cards = array_merge($fleetCards, $tripCards, $maintCards);
+=======
+        $fleet = many($p, "SELECT status, COUNT(*) AS n FROM vehicles WHERE active=1 GROUP BY status");
+        $fs = array_column($fleet, 'n', 'status');
+        $truckTotal = array_sum(array_map('intval', $fs));
+        $crew = one($p, "SELECT SUM(person_type='Driver') AS drivers, SUM(person_type='Driver' AND availability='Available') AS drivers_free,
+            SUM(person_type='Helper') AS helpers, SUM(person_type='Helper' AND availability='Available') AS helpers_free FROM personnel WHERE active=1");
+        $ongoing = self::n($p, "SELECT COUNT(*) AS n FROM trips WHERE status IN ('Dispatched','On Hold - Incident Reported','In Transit')");
+        $completedMonth = self::n($p, "SELECT COUNT(*) AS n FROM trips WHERE status='Completed' AND completed_at>=DATE_FORMAT(CURRENT_DATE(),'%Y-%m-01')");
+        $fleetCards = [
+            ['label' => 'Total trucks', 'value' => $truckTotal, 'icon' => 'bi-truck', 'color' => 'green', 'page' => 'trucks', 'group' => 'Fleet'],
+            ['label' => 'Available trucks', 'value' => (int)($fs['Available'] ?? 0), 'icon' => 'bi-check-circle', 'color' => 'green', 'page' => 'trucks', 'group' => 'Fleet'],
+            ['label' => 'Assigned / on trip', 'value' => (int)($fs['Assigned'] ?? 0) + (int)($fs['On Trip'] ?? 0), 'icon' => 'bi-signpost-split', 'color' => 'blue', 'page' => 'trucks', 'group' => 'Fleet',
+             'hint' => (int)($fs['Assigned'] ?? 0) . ' assigned, ' . (int)($fs['On Trip'] ?? 0) . ' on the road'],
+            ['label' => 'Under maintenance / unavailable', 'value' => (int)($fs['Under Maintenance'] ?? 0) + (int)($fs['Unavailable'] ?? 0), 'icon' => 'bi-tools', 'color' => 'red', 'page' => 'trucks', 'group' => 'Fleet',
+             'hint' => (int)($fs['Under Maintenance'] ?? 0) . ' maintenance, ' . (int)($fs['Unavailable'] ?? 0) . ' unavailable'],
+            ['label' => 'Drivers available', 'value' => (int)$crew['drivers_free'] . ' / ' . (int)$crew['drivers'], 'icon' => 'bi-person-badge', 'color' => 'amber', 'page' => 'crew', 'group' => 'Crew and trips'],
+            ['label' => 'Helpers available', 'value' => (int)$crew['helpers_free'] . ' / ' . (int)$crew['helpers'], 'icon' => 'bi-people', 'color' => 'amber', 'page' => 'crew', 'group' => 'Crew and trips'],
+            ['label' => 'Ongoing trips', 'value' => $ongoing, 'icon' => 'bi-geo-alt', 'color' => 'blue', 'page' => 'trips', 'group' => 'Crew and trips'],
+            ['label' => 'Completed trips this month', 'value' => $completedMonth, 'icon' => 'bi-flag', 'color' => 'green', 'page' => 'trips', 'group' => 'Crew and trips'],
+        ];
+        $fleetChart = ['type' => 'doughnut', 'title' => 'Fleet status now', 'labels' => array_keys(array_filter($fs)), 'datasets' => [['label' => 'Trucks', 'data' => array_values(array_map('intval', array_filter($fs)))]],
+                       'how' => 'Count of active trucks by status from the truck masterlist.'];
+        $activeTrips = fn(string $scope = '', array $args = []) => many($p, "SELECT t.id, t.trip_ref, t.status, t.scheduled_at, c.company_name AS client, v.plate_number, d.full_name AS driver_name, t.truck_type
+            FROM trips t JOIN clients c ON c.id=t.client_id LEFT JOIN vehicles v ON v.id=t.vehicle_id LEFT JOIN personnel d ON d.id=t.driver_id
+            WHERE t.status NOT IN ('Completed','Cancelled','Rejected') $scope ORDER BY t.scheduled_at LIMIT 100", $args);
+        $tripCols = [['Trip', 'trip_ref'], ['Client', 'client'], ['Truck', 'plate_number'], ['Driver', 'driver_name'], ['Schedule', 'scheduled_at', 'datetime'], ['Status', 'status', 'badge']];
+        $maintTable = fn() => ['title' => 'Trucks under maintenance', 'page' => 'maintenance', 'columns' => [['Truck', 'plate_number'], ['Type', 'source'], ['Problem', 'problem'], ['Expected back', 'expected_completion', 'date']],
+            'rows' => many($p, "SELECT v.plate_number, m.source, m.problem, m.expected_completion FROM maintenance_jobs m JOIN vehicles v ON v.id=m.vehicle_id WHERE m.status='Ongoing' AND NOT (m.source='Incident' AND m.severity='Minor') ORDER BY m.expected_completion")];
+
+        if (in_array($r, ['admin', 'operations_head'], true)) {
+            $cards = $fleetCards;
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM trips WHERE status='Pending Review'"), 'trip request(s) waiting for your review', 'trips');
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM fund_requests WHERE status='Pending Approval'"), 'fund request(s) waiting for approval', 'funds');
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM trips WHERE status='Awaiting Resources'"), 'trip(s) waiting for a free truck or crew', 'trips', 'info');
@@ -98,14 +131,22 @@ final class Analytics {
                 if (empty(one($p, 'SELECT recovery_hash FROM users WHERE id=?', [$u['id']])['recovery_hash'])) $alerts[] = ['text' => 'No Admin recovery code yet. Make one from your name menu > Recovery code.', 'level' => 'info'];
             }
             $docDays = (int)Settings::value('document_alert_days');
+<<<<<<< HEAD
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM vehicles WHERE active=1 AND ((registration_expiry IS NOT NULL AND registration_expiry<=DATE_ADD(CURRENT_DATE(), INTERVAL ? DAY)) OR (insurance_expiry IS NOT NULL AND insurance_expiry<=DATE_ADD(CURRENT_DATE(), INTERVAL ? DAY)))", [$docDays, $docDays]), "truck(s) with registration or insurance expiring within $docDays days", 'trucks', 'info');
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM personnel WHERE active=1 AND license_expiry IS NOT NULL AND license_expiry<=DATE_ADD(CURRENT_DATE(), INTERVAL ? DAY)", [(int)Settings::value('license_alert_days')]), "driver license(s) expiring soon", 'crew', 'info');
+=======
+            $alert(self::n($p, "SELECT COUNT(*) AS n FROM vehicles WHERE active=1 AND ((registration_expiry IS NOT NULL AND registration_expiry<=DATE_ADD(CURRENT_DATE(), INTERVAL ? DAY)) OR (insurance_expiry IS NOT NULL AND insurance_expiry<=DATE_ADD(CURRENT_DATE(), INTERVAL ? DAY)))", [$docDays, $docDays]), 'truck(s) with registration or insurance expiring or expired', 'trucks', 'info');
+            $alert(self::n($p, "SELECT COUNT(*) AS n FROM personnel WHERE active=1 AND license_expiry IS NOT NULL AND license_expiry<=DATE_ADD(CURRENT_DATE(), INTERVAL ? DAY)", [(int)Settings::value('license_alert_days')]), "driver license(s) expiring or expired", 'crew', 'info');
+            $charts[] = $fleetChart;
+            $charts[] = self::tripTrend($p);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             if ($r === 'admin') {
                 $money = one($p, "SELECT (SELECT COALESCE(SUM(total_amount),0) FROM billings WHERE invoice_date>=DATE_FORMAT(CURRENT_DATE(),'%Y-%m-01')) AS billed,
                     (SELECT COALESCE(SUM(amount),0) FROM collections WHERE payment_date>=DATE_FORMAT(CURRENT_DATE(),'%Y-%m-01')) AS collected,
                     (SELECT COALESCE(SUM(amount),0) FROM expenses WHERE incurred_on>=DATE_FORMAT(CURRENT_DATE(),'%Y-%m-01')) AS spent,
                     (SELECT COALESCE(SUM(total_amount-amount_paid),0) FROM billings WHERE status IN ('Invoiced','Partially Paid')) AS receivable");
                 foreach ([['Billed this month', 'billed', 'bi-receipt', 'billing'], ['Collected this month', 'collected', 'bi-cash-stack', 'billing'], ['Expenses this month', 'spent', 'bi-wallet2', 'finance'], ['Outstanding receivables', 'receivable', 'bi-hourglass-split', 'billing']] as [$l, $k, $i, $pg]) {
+<<<<<<< HEAD
                     $cards[] = ['label' => $l, 'value' => (float)$money[$k], 'format' => 'money', 'icon' => $i, 'page' => $pg, 'group' => 'Money'];
                 }
             }
@@ -114,10 +155,20 @@ final class Analytics {
             $tables[] = $doneTable();
         } elseif (roleIsDispatcher($r)) {
             $cards = array_merge($fleetCards, [$tripCards[0]]);
+=======
+                    $cards[] = ['label' => $l, 'value' => (float)$money[$k], 'format' => 'money', 'icon' => $i, 'color' => 'amber', 'page' => $pg, 'group' => 'Money'];
+                }
+            }
+            $tables[] = ['title' => 'Active trips', 'page' => 'trips', 'columns' => $tripCols, 'rows' => $activeTrips()];
+            $tables[] = $maintTable();
+        } elseif (roleIsDispatcher($r)) {
+            $cards = array_slice($fleetCards, 0, 4);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             $scope = 'AND t.dispatcher_role=?'; $a = [$r];
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM trips t WHERE t.status='Pre-Assigned' $scope AND NOT EXISTS (SELECT 1 FROM fund_requests f WHERE f.trip_id=t.id AND f.attempt_number=t.attempt_number) AND t.attempt_number=1", $a), 'pre-assigned trip(s) need a fund request', 'trips');
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM trips t WHERE t.status='Pre-Assigned' $scope", $a), 'trip(s) need the pre-dispatch checklist', 'trips');
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM fund_requests f JOIN trips t ON t.id=f.trip_id WHERE f.status='Rejected' AND t.status NOT IN ('Completed','Cancelled','Rejected') $scope", $a), 'rejected fund request(s) to revise', 'funds', 'danger');
+<<<<<<< HEAD
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM trips t JOIN fund_requests f ON f.trip_id=t.id AND f.attempt_number=t.attempt_number WHERE t.status='Ready for Dispatch' AND f.status='Released' $scope", $a), 'trip(s) ready: Confirm Dispatch', 'trips', 'success');
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM trips t JOIN incidents i ON i.trip_id=t.id WHERE i.status='Repaired - Cleared to Continue' $scope", $a), 'trip(s) cleared to continue (Resume Trip)', 'trips', 'success');
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM trips t WHERE t.status='For Reschedule' $scope", $a), 'trip(s) for reschedule', 'trips', 'danger');
@@ -134,23 +185,58 @@ final class Analytics {
             $cards = [['label' => 'Parts in inventory', 'value' => (int)$inv['parts'], 'icon' => 'bi-box-seam', 'page' => 'purchasing'],
                       ['label' => 'Inventory value', 'value' => (float)$inv['value'], 'format' => 'money', 'icon' => 'bi-cash', 'page' => 'purchasing'],
                       ['label' => 'Low-stock items', 'value' => (int)$inv['low'], 'icon' => 'bi-exclamation-triangle', 'color' => (int)$inv['low'] ? 'red' : 'green', 'page' => 'purchasing']];
+=======
+            $alert(self::n($p, "SELECT COUNT(*) AS n FROM trips t JOIN fund_requests f ON f.trip_id=t.id AND f.attempt_number=t.attempt_number WHERE t.status='Ready for Dispatch' AND f.status='Released' $scope", $a), 'trip(s) ready: Confirm Dispatch is enabled', 'trips', 'success');
+            $alert(self::n($p, "SELECT COUNT(*) AS n FROM trips t JOIN incidents i ON i.trip_id=t.id WHERE i.status='Repaired - Cleared to Continue' $scope", $a), 'trip(s) cleared to continue (Resume Trip)', 'trips', 'success');
+            $alert(self::n($p, "SELECT COUNT(*) AS n FROM trips t WHERE t.status='For Reschedule' $scope", $a), 'trip(s) for reschedule', 'trips', 'danger');
+            $tables[] = ['title' => 'My active trips', 'page' => 'trips', 'columns' => $tripCols, 'rows' => $activeTrips('AND t.dispatcher_role=?', [$r])];
+            $charts[] = $fleetChart;
+        } elseif ($r === 'motorpool') {
+            $cards = array_slice($fleetCards, 0, 4);
+            $alert(self::n($p, "SELECT COUNT(*) AS n FROM maintenance_jobs WHERE source='Incident' AND status='Reported'"), 'incident(s) waiting for your assessment', 'maintenance', 'danger');
+            $alert(self::n($p, "SELECT COUNT(*) AS n FROM maintenance_jobs WHERE status='Ongoing'"), 'ongoing repair(s) / PMS', 'maintenance', 'info');
+            $months = max(1, (int)Settings::value('pms_interval_months'));
+            $alert(self::n($p, "SELECT COUNT(*) AS n FROM vehicles v WHERE v.active=1 AND (v.last_pms_date IS NULL OR DATE_ADD(v.last_pms_date, INTERVAL ? MONTH)<=CURRENT_DATE()) AND NOT EXISTS (SELECT 1 FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.source='Preventive' AND m.status IN ('Reported','Ongoing'))", [$months]), 'truck(s) due for monthly PMS', 'maintenance');
+            $charts[] = $fleetChart;
+            $tables[] = $maintTable();
+        } elseif ($r === 'purchasing') {
+            $inv = one($p, 'SELECT COUNT(*) AS parts, COALESCE(SUM(quantity_on_hand*unit_cost),0) AS value, SUM(reorder_level>0 AND quantity_on_hand<=reorder_level) AS low FROM parts WHERE active=1');
+            $cards = [['label' => 'Parts in inventory', 'value' => (int)$inv['parts'], 'icon' => 'bi-box-seam', 'page' => 'purchasing'],
+                      ['label' => 'Inventory value', 'value' => (float)$inv['value'], 'format' => 'money', 'icon' => 'bi-cash', 'color' => 'amber', 'page' => 'purchasing'],
+                      ['label' => 'Low-stock items', 'value' => (int)$inv['low'], 'icon' => 'bi-exclamation-triangle', 'color' => 'red', 'page' => 'purchasing']];
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM part_requests WHERE status='Requested'"), 'parts request(s) to check and release', 'purchasing');
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM purchase_orders WHERE status IN ('Approved','Partially Received')"), 'approved purchase order(s) waiting for delivery', 'purchasing', 'info');
             $alert((float)$inv['low'], 'low-stock item(s)', 'purchasing', 'danger');
             $tables[] = ['title' => 'Low-stock items', 'page' => 'purchasing', 'columns' => [['Part', 'part_number'], ['Description', 'description'], ['On hand', 'quantity_on_hand'], ['Reorder level', 'reorder_level']],
+<<<<<<< HEAD
                          'rows' => many($p, 'SELECT part_number, description, quantity_on_hand, reorder_level FROM parts WHERE active=1 AND reorder_level>0 AND quantity_on_hand<=reorder_level ORDER BY quantity_on_hand'), 'empty' => 'No low-stock items.'];
+=======
+                         'rows' => many($p, 'SELECT part_number, description, quantity_on_hand, reorder_level FROM parts WHERE active=1 AND reorder_level>0 AND quantity_on_hand<=reorder_level ORDER BY quantity_on_hand')];
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         } elseif ($r === 'finance') {
             $b = one($p, "SELECT amount-reserved_amount-spent_amount AS available, reserved_amount FROM budgets WHERE status='Active' AND category='Purchasing' ORDER BY id DESC LIMIT 1");
             $cards = [
                 ['label' => 'Funds ready for release', 'value' => self::n($p, "SELECT COALESCE(SUM(amount),0) AS n FROM fund_requests WHERE status='Ready for Release'"), 'format' => 'money', 'icon' => 'bi-cash-coin', 'page' => 'funds'],
+<<<<<<< HEAD
                 ['label' => 'PO payables (received, unpaid)', 'value' => self::n($p, "SELECT COALESCE(SUM((SELECT COALESCE(SUM(l.received_qty*l.unit_price),0) FROM purchase_order_lines l WHERE l.purchase_order_id=o.id) - o.paid_amount),0) AS n FROM purchase_orders o WHERE o.payment_status IN ('Pending Payment','Partially Paid')"), 'format' => 'money', 'icon' => 'bi-receipt', 'page' => 'finance'],
                 ['label' => 'Purchasing budget available', 'value' => (float)($b['available'] ?? 0), 'format' => 'money', 'icon' => 'bi-piggy-bank', 'color' => 'green', 'page' => 'finance', 'hint' => $b ? 'Reserved: PHP ' . number_format((float)$b['reserved_amount'], 2) : 'No active budget'],
                 ['label' => 'Expenses this month', 'value' => self::n($p, "SELECT COALESCE(SUM(amount),0) AS n FROM expenses WHERE incurred_on>=DATE_FORMAT(CURRENT_DATE(),'%Y-%m-01')"), 'format' => 'money', 'icon' => 'bi-wallet2', 'page' => 'finance'],
+=======
+                ['label' => 'PO payables (received, unpaid)', 'value' => self::n($p, "SELECT COALESCE(SUM((SELECT COALESCE(SUM(l.received_qty*l.unit_price),0) FROM purchase_order_lines l WHERE l.purchase_order_id=o.id) - o.paid_amount),0) AS n FROM purchase_orders o WHERE o.payment_status IN ('Pending Payment','Partially Paid')"), 'format' => 'money', 'icon' => 'bi-receipt', 'color' => 'amber', 'page' => 'finance'],
+                ['label' => 'Purchasing budget available', 'value' => (float)($b['available'] ?? 0), 'format' => 'money', 'icon' => 'bi-piggy-bank', 'color' => 'green', 'page' => 'finance', 'hint' => $b ? 'Reserved: PHP ' . number_format((float)$b['reserved_amount'], 2) : 'No active budget'],
+                ['label' => 'Expenses this month', 'value' => self::n($p, "SELECT COALESCE(SUM(amount),0) AS n FROM expenses WHERE incurred_on>=DATE_FORMAT(CURRENT_DATE(),'%Y-%m-01')"), 'format' => 'money', 'icon' => 'bi-wallet2', 'color' => 'red', 'page' => 'finance'],
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             ];
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM fund_requests WHERE status='Ready for Release'"), 'approved trip fund(s) to release', 'funds');
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM purchase_orders WHERE status='Pending Approval' AND approver_role='finance'"), 'purchase order(s) waiting for your approval', 'purchasing');
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM fund_requests f JOIN trips t ON t.id=f.trip_id WHERE f.status='Released' AND f.liquidation_status='Not Liquidated' AND t.status IN ('Completed','Cancelled')"), 'released fund(s) to liquidate', 'funds', 'info');
+<<<<<<< HEAD
             if (!$b) $alerts[] = ['text' => 'No active purchasing budget. Purchase orders will be rejected until a budget is set (Finance > Purchasing budget).', 'page' => 'finance', 'level' => 'danger'];
+=======
+            if (!$b) $alerts[] = ['text' => 'No active purchasing budget. Purchase orders will be rejected until a budget is set (Finance > Budget).', 'page' => 'finance', 'level' => 'danger'];
+            $charts[] = self::moneyTrend($p);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         } elseif ($r === 'billing') {
             $cards = [
                 ['label' => 'Ongoing trip drafts', 'value' => self::n($p, "SELECT COUNT(*) AS n FROM billings WHERE status='Ongoing'"), 'icon' => 'bi-hourglass', 'page' => 'billing'],
@@ -161,14 +247,41 @@ final class Analytics {
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM clients WHERE status='Pending Rate'"), 'new client(s) waiting for a billing rate', 'clients');
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM billings WHERE status='For Billing'"), 'completed trip(s) to verify and invoice', 'billing');
             $alert(self::n($p, "SELECT COUNT(*) AS n FROM billings WHERE status IN ('Invoiced','Partially Paid') AND due_date<CURRENT_DATE()"), 'overdue invoice(s)', 'billing', 'danger');
+<<<<<<< HEAD
         } else { // audit
             $cards = array_merge($fleetCards, $tripCards, $maintCards);
             $tables[] = ['title' => 'Latest activity', 'page' => 'admin', 'columns' => [['When', 'created_at', 'datetime'], ['Who', 'actor'], ['Area', 'area'], ['Action', 'action'], ['Details', 'details']],
                          'rows' => many($p, "SELECT a.created_at, COALESCE(u.full_name,'System') AS actor, a.area, a.action, a.details FROM audit_events a LEFT JOIN users u ON u.id=a.actor_id ORDER BY a.id DESC LIMIT 20")];
+=======
+            $charts[] = self::moneyTrend($p);
+        } else { // audit
+            $cards = $fleetCards;
+            $tables[] = ['title' => 'Latest activity', 'page' => 'admin', 'columns' => [['When', 'created_at', 'datetime'], ['Who', 'actor'], ['Area', 'area'], ['Action', 'action'], ['Details', 'details']],
+                         'rows' => many($p, "SELECT a.created_at, COALESCE(u.full_name,'System') AS actor, a.area, a.action, a.details FROM audit_events a LEFT JOIN users u ON u.id=a.actor_id ORDER BY a.id DESC LIMIT 50")];
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         }
         return ['alerts' => $alerts, 'cards' => $cards, 'charts' => $charts, 'tables' => $tables];
     }
 
+<<<<<<< HEAD
+=======
+    private static function tripTrend(PDO $p): array {
+        $rows = array_column(many($p, "SELECT DATE(completed_at) AS d, COUNT(*) AS n FROM trips WHERE status='Completed' AND completed_at>=DATE_SUB(CURRENT_DATE(), INTERVAL 13 DAY) GROUP BY DATE(completed_at)"), 'n', 'd');
+        $labels = []; $vals = [];
+        for ($i = 13; $i >= 0; $i--) { $d = date('Y-m-d', strtotime("-$i days")); $labels[] = date('M j', strtotime($d)); $vals[] = (int)($rows[$d] ?? 0); }
+        return ['type' => 'bar', 'title' => 'Completed trips, last 14 days', 'labels' => $labels, 'datasets' => [['label' => 'Completed trips', 'data' => $vals]], 'how' => 'Trips counted on their actual completion date.'];
+    }
+
+    private static function moneyTrend(PDO $p): array {
+        $labels = []; $b = []; $c = [];
+        $billed = array_column(many($p, "SELECT DATE_FORMAT(invoice_date,'%Y-%m') AS m, SUM(total_amount) AS v FROM billings WHERE invoice_date>=DATE_SUB(DATE_FORMAT(CURRENT_DATE(),'%Y-%m-01'), INTERVAL 5 MONTH) GROUP BY m"), 'v', 'm');
+        $coll = array_column(many($p, "SELECT DATE_FORMAT(payment_date,'%Y-%m') AS m, SUM(amount) AS v FROM collections WHERE payment_date>=DATE_SUB(DATE_FORMAT(CURRENT_DATE(),'%Y-%m-01'), INTERVAL 5 MONTH) GROUP BY m"), 'v', 'm');
+        for ($i = 5; $i >= 0; $i--) { $m = date('Y-m', strtotime(date('Y-m-01') . " -$i months")); $labels[] = date('M Y', strtotime($m . '-01')); $b[] = (float)($billed[$m] ?? 0); $c[] = (float)($coll[$m] ?? 0); }
+        return ['type' => 'bar', 'title' => 'Billed vs collected, last 6 months', 'format' => 'money', 'labels' => $labels,
+                'datasets' => [['label' => 'Billed', 'data' => $b], ['label' => 'Collected', 'data' => $c]], 'how' => 'Billed = invoices by invoice date. Collected = payments by payment date.'];
+    }
+
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     // =================================================================
     // REPORTS
     // =================================================================

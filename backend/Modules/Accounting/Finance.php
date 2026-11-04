@@ -92,7 +92,10 @@ final class Finance {
             $st = one($p, 'SELECT payment_status FROM purchase_orders WHERE id=?', [$id])['payment_status'];
             audit($p, $u['id'], 'Finance', 'po ' . $id, 'purchase order payment recorded', $o['po_ref'] . ' PHP ' . $amount . ' -> ' . $st);
             Notify::user($p, (int)$o['requested_by'], 'PO paid', $o['po_ref'] . ' payment recorded (' . $st . ').', 'purchasing');
+<<<<<<< HEAD
             if ($st === 'Paid') Notify::resolve($p, 'po-pay-' . $o['id']);
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             return ['message' => 'Payment recorded. ' . $o['po_ref'] . ' is ' . $st . '.'];
         });
     }

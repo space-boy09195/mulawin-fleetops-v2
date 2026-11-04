@@ -3,9 +3,15 @@
    =====================================================================
    - App.start()        sign in (password + email code) and the main shell
    - App.page(id, def)  each module file registers its pages here
+<<<<<<< HEAD
    - App.api(name, d)   POST to the backend (Module.action)
    - UI.*               tables, forms, modals, filters, drawers, badges, charts, map, signature
    MODULE ISOLATION: every page loads its own data. If one module file
+=======
+   - App.api(name, d)   POST to backend (Module.action)
+   - UI.*               tables, forms, modals, filter modal, drawer, badges, charts, CSV, map
+   MODULE ISOLATION: every page loads its own data. If a module file
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
    (assets/js/modules/<department>/*.js) or its backend fails, only that page shows
    an error; the sidebar and the other pages keep working.
    ===================================================================== */
@@ -39,11 +45,18 @@ const App = {
     return (await this.request('index.php?' + qs.toString())).data;
   },
   /** POST with files: normal fields go in "payload" (JSON), files keep their input names. */
+<<<<<<< HEAD
   async apiForm(action, payload, form, extraFiles = {}) {
     const fd = new FormData();
     fd.append('payload', JSON.stringify(payload || {}));
     if (form) form.querySelectorAll('input[type=file][name]').forEach(inp => [...inp.files].forEach(f => fd.append(inp.name + (inp.multiple ? '[]' : ''), f)));
     Object.entries(extraFiles).forEach(([name, file]) => file && fd.append(name, file, file.name || name + '.png'));
+=======
+  async apiForm(action, payload, form) {
+    const fd = new FormData();
+    fd.append('payload', JSON.stringify(payload || {}));
+    if (form) form.querySelectorAll('input[type=file][name]').forEach(inp => [...inp.files].forEach(f => fd.append(inp.name + (inp.multiple ? '[]' : ''), f)));
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     const r = await this.request('index.php?api=' + encodeURIComponent(action), { method: 'POST', headers: { 'X-CSRF-Token': this.csrf }, body: fd });
     return r.data || {};
   },
@@ -65,6 +78,10 @@ const App = {
   async loadMe() {
     const me = await this.request('index.php?api=me');
     this.me = me; this.csrf = me.csrf;
+<<<<<<< HEAD
+=======
+    if (+me.user.must_change_password) return this.passwordScreen(true);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     this.shell();
     window.onhashchange = () => this.route();
     this.route();
@@ -97,6 +114,7 @@ const App = {
   },
 
   loginScreen(message = '', username = '', ok = false) {
+<<<<<<< HEAD
     this.authFrame(`
       <div class="auth-head"><h1>Sign in</h1><p>Step 1 of 2 · Enter your username (or email) and password.</p></div>
       ${this.authAlert(message, ok)}
@@ -113,6 +131,35 @@ const App = {
       </form>`);
     document.getElementById(username ? 'lgP' : 'lgU').focus();
     document.getElementById('lgEye').onclick = (e) => { const p = document.getElementById('lgP'); p.type = p.type === 'password' ? 'text' : 'password'; e.currentTarget.innerHTML = `<i class="bi bi-eye${p.type === 'password' ? '' : '-slash'}"></i>`; };
+=======
+    document.getElementById('app').innerHTML = `
+    <div class="login-page"><div class="login-shell">
+      <aside class="login-visual" aria-label="Fleet operations overview">
+        <span class="visual-shape visual-shape--a"></span><span class="visual-shape visual-shape--b"></span>
+        <div class="visual-content"><div class="brand-icon"><i class="bi bi-truck-front-fill"></i></div>
+          <h2>Welcome to Mulawin FleetOps</h2>
+          <p>Fleet Management System of R.P. Mulawin Trucking: trucks, drivers, clients, trips, maintenance, billing and finance in one place.</p></div>
+      </aside>
+      <div class="login-card">
+        <div class="login-brand"><div class="brand-icon brand-icon--compact"><i class="bi bi-truck-front-fill"></i></div>
+          <h1 class="brand-name">Welcome back</h1><p class="brand-sub">Sign in with your work account.</p></div>
+        ${message ? `<div class="alert alert-${ok ? 'success' : 'danger'} py-2">${UI.esc(message)}</div>` : ''}
+        <form id="loginForm" novalidate>
+          <div class="mb-3"><label class="form-label" for="lgU">Username</label>
+            <div class="input-group"><span class="input-group-text"><i class="bi bi-person-fill"></i></span>
+            <input class="form-control" id="lgU" name="username" autocomplete="username" value="${UI.esc(username)}" required></div></div>
+          <div class="mb-4"><label class="form-label" for="lgP">Password</label>
+            <div class="input-group"><span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+            <input class="form-control" type="password" id="lgP" name="password" autocomplete="current-password" required>
+            <button class="btn btn-outline-secondary" type="button" id="lgEye" aria-label="Show password"><i class="bi bi-eye-slash"></i></button></div></div>
+          <button class="btn btn-primary w-100 login-btn" type="submit"><i class="bi bi-box-arrow-in-right me-1"></i> Sign In</button>
+          <div class="text-center mt-3"><span class="text-muted small">Forgot your password? Ask the Admin to reset it.</span></div>
+          <div class="text-center mt-1"><button type="button" class="btn btn-link btn-sm p-0" id="lgRecover">Forgot the Admin password? Use the recovery code</button></div>
+        </form>
+        <p class="login-footer-text">Mulawin FleetOps &copy; ${new Date().getFullYear()}</p>
+      </div></div></div>`;
+    document.getElementById('lgEye').onclick = () => { const p = document.getElementById('lgP'); p.type = p.type === 'password' ? 'text' : 'password'; };
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     document.getElementById('lgRecover').onclick = () => this.recoverScreen();
     document.getElementById('loginForm').onsubmit = async (e) => {
       e.preventDefault();
@@ -208,7 +255,11 @@ const App = {
         <p>Use it on the sign-in page (Admin recovery code). It works one time only. Keep this paper in a safe place.</p>
         <p style="font-size:11px;color:#555">Made on ${UI.esc(new Date().toLocaleString('en-PH'))}</p></div>`;
       UI.modal('Save this recovery code now', `<div class="alert alert-warning small">This code is shown only once. Print it or write it down, then keep it in a safe place.</div>
+<<<<<<< HEAD
         <div class="text-center fs-3 fw-bold py-3" style="letter-spacing:3px">${UI.esc(code)}</div>`, null,
+=======
+        <div class="text-center display-6 fw-bold py-3" style="letter-spacing:3px">${UI.esc(code)}</div>`, null,
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         { size: '', extraFooter: '<button type="button" class="btn btn-primary btn-sm" id="rcPrint"><i class="bi bi-printer"></i> Print</button>',
           onShow: (w) => { w.querySelector('#rcPrint').onclick = () => UI.print(sheet); } });
     }, { size: '', submit: 'Make a new code' });
@@ -232,15 +283,26 @@ const App = {
   // ---------------------------------------------------------------- shell
   shell() {
     const me = this.me, u = me.user;
+<<<<<<< HEAD
     const initials = (u.full_name || u.username).split(/[\s,]+/).filter(Boolean).map(s => s[0]).slice(0, 2).join('').toUpperCase();
     const link = (n) => `<a href="#${n.id}" class="nav-item-link" data-nav="${n.id}"><i class="bi ${n.icon}"></i><span>${UI.esc(n.label)}</span></a>`;
     let nav = me.nav.filter(n => !n.section).map(link).join('');
     (me.sections || []).forEach(sec => {
       const items = me.nav.filter(n => n.section === sec && n.id !== 'notifications'); if (!items.length) return;
       nav += `<div class="nav-section">${UI.esc(sec)}</div>${items.map(link).join('')}`;
+=======
+    const initials = (u.full_name || u.username).split(' ').filter(Boolean).map(s => s[0]).slice(0, 2).join('').toUpperCase();
+    const navLink = (n) => `<a href="#${n.id}" class="nav-link flat-link" data-nav="${n.id}" title="${UI.esc(n.label)}"><i class="bi ${n.icon} nav-icon"></i><span class="nav-label">${UI.esc(n.label)}</span></a>`;
+    // One short menu: small headings only when the role has pages under them (no folding menus).
+    let nav = me.nav.filter(n => !n.section).map(navLink).join('');
+    (me.sections || []).forEach(sec => {
+      const items = me.nav.filter(n => n.section === sec); if (!items.length) return;
+      nav += `<div class="nav-heading">${UI.esc(sec)}</div>${items.map(navLink).join('')}`;
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     });
     document.getElementById('app').innerHTML = `
     <div class="app-shell" id="appShell">
+<<<<<<< HEAD
       <aside class="sidebar" id="appSidebar" aria-label="Main menu">
         <a href="#dashboard" class="sidebar-brand">${UI.logoTag('sidebar-logo')}<span><span class="brand-product">Mulawin FleetOps</span><span class="brand-company">R.P. Mulawin Trucking</span></span></a>
         <nav class="sidebar-nav">${nav}</nav>
@@ -272,10 +334,36 @@ const App = {
                 <button class="dropdown-item text-danger" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> Log out</button>
               </div>
             </div>
+=======
+      <aside class="sidebar" id="appSidebar">
+        <div class="sidebar-brand"><a href="#dashboard" class="sidebar-home-btn"><div class="sidebar-brand-icon"><i class="bi bi-truck-front-fill"></i></div></a>
+          <div class="sidebar-brand-text"><div class="brand-title">FleetOps</div><div class="brand-sub">RP Mulawin Trucking</div></div></div>
+        <nav class="sidebar-nav flat-nav">${nav}</nav>
+      </aside>
+      <div class="main-wrapper">
+        <header class="topnav no-print">
+          <button class="sidebar-toggle-btn" id="sidebarToggleBtn" type="button" title="Show or hide the menu"><i class="bi bi-list"></i></button>
+          <div class="topnav-breadcrumb"><a href="#dashboard" class="bc-home"><i class="bi bi-house"></i></a><i class="bi bi-chevron-right"></i><span class="bc-current" id="bcTitle">Dashboard</span></div>
+          <div class="topnav-actions">
+            <div class="dropdown"><button class="notif-btn" type="button" data-bs-toggle="dropdown" title="Notifications"><i class="bi bi-bell"></i>
+              <span class="notif-badge d-none" id="bellBadge">0</span></button>
+              <div class="dropdown-menu dropdown-menu-end p-0 notif-menu"><div class="notif-menu-head"><span class="fw-semibold">Notifications</span>
+                <button type="button" class="notif-clear-btn" id="bellClear">Mark all read</button></div><div id="bellList"></div></div></div>
+            <div class="dropdown profile-dropdown"><button class="profile-trigger" type="button" data-bs-toggle="dropdown">
+              <span class="profile-avatar">${UI.esc(initials)}</span><span class="profile-identity"><span class="profile-name">${UI.esc(u.full_name)}</span></span>
+              <i class="bi bi-chevron-down profile-chevron"></i></button>
+              <div class="dropdown-menu dropdown-menu-end profile-menu"><div class="profile-menu-user"><span class="profile-menu-name">${UI.esc(u.full_name)}</span>
+                <span class="profile-menu-role">${UI.esc(u.role_label)}${u.shift ? ' · ' + UI.esc(u.shift) + ' shift' : ''}</span></div>
+                <div class="dropdown-divider"></div><button class="dropdown-item" id="chgPw"><i class="bi bi-key me-2"></i>Change password</button>
+                ${['admin', 'finance'].includes(u.role) ? `<button class="dropdown-item" id="mySig"><i class="bi bi-pen me-2"></i>My e-signature${u.has_signature ? '' : ' (not set)'}</button>` : ''}
+                ${u.role === 'admin' ? '<button class="dropdown-item" id="recCode"><i class="bi bi-shield-lock me-2"></i>Recovery code</button>' : ''}
+                <button class="dropdown-item profile-logout" id="logoutBtn"><i class="bi bi-box-arrow-right me-2"></i>Log Out</button></div></div>
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
           </div>
         </header>
         <main class="content" id="pageContent"></main>
       </div>
+<<<<<<< HEAD
     </div><div id="printArea"></div>`;
     const sb = document.getElementById('appSidebar'), bd = document.getElementById('sidebarBackdrop');
     document.getElementById('menuBtn').onclick = () => { sb.classList.add('open'); bd.classList.add('show'); };
@@ -286,6 +374,28 @@ const App = {
     document.getElementById('mySig').onclick = () => UI.signatureModal();
     document.getElementById('bellReadAll').onclick = async () => { try { this.applyBell(await this.api('Admin.notifications_read', {})); } catch (e) { UI.toast(e.message, 'error'); } };
     document.getElementById('bellAll').onclick = () => bootstrap.Dropdown.getInstance(document.getElementById('bellBtn'))?.hide();
+=======
+    </div><button type="button" class="to-top no-print" id="toTop" title="Back to top"><i class="bi bi-arrow-up"></i></button><div id="printArea"></div>`;
+    document.getElementById('toTop').onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.onscroll = () => {
+      const cl = document.body.classList;
+      if (window.scrollY > 120) cl.add('page-scrolled'); else if (window.scrollY < 30) cl.remove('page-scrolled');
+      document.getElementById('toTop').classList.toggle('show', window.scrollY > 400);
+    };
+    const sidebar = document.getElementById('appSidebar'), shell = document.getElementById('appShell'), overlay = document.getElementById('sidebarOverlay');
+    document.getElementById('sidebarToggleBtn').onclick = () => {
+      if (window.innerWidth <= 768) { sidebar.classList.toggle('mobile-open'); overlay.classList.toggle('active'); }
+      else { sidebar.classList.toggle('collapsed'); shell.classList.toggle('sidebar-collapsed'); }
+    };
+    overlay.onclick = () => { sidebar.classList.remove('mobile-open'); overlay.classList.remove('active'); };
+    document.getElementById('logoutBtn').onclick = () => { if (confirm('Log out of Mulawin FleetOps?')) this.logout(); };
+    document.getElementById('chgPw').onclick = () => this.passwordScreen(false);
+    document.getElementById('recCode')?.addEventListener('click', () => this.recoveryCode());
+    document.getElementById('mySig')?.addEventListener('click', () => UI.modal('My e-signature', `<p class="small text-muted">Upload a clear image (PNG or JPG) of your signature. It is printed on the purchase orders you approve.</p>
+      ${UI.fields([{ name: 'signature', label: 'Signature image', type: 'file', required: true, attrs: 'accept="image/png,image/jpeg"' }])}`,
+      async (d, form) => { const r = await App.apiForm('Admin.signature_upload', {}, form); UI.result(r); this.me.user.has_signature = true; }, { size: '', submit: 'Save signature' }));
+    document.getElementById('bellClear').onclick = async (e) => { e.stopPropagation(); await this.api('Admin.notifications_read', {}); this.refreshBell(); };
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     this.renderBell();
   },
 
@@ -340,9 +450,14 @@ const App = {
     if (!nav) return this.go('dashboard');
     this.current = { page, query };
     document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === page));
+<<<<<<< HEAD
     document.getElementById('appSidebar').classList.remove('open'); document.getElementById('sidebarBackdrop').classList.remove('show');
     document.getElementById('crumbs').innerHTML = `${nav.section ? `<span class="crumb-sec">${UI.esc(nav.section)}</span><i class="bi bi-chevron-right"></i>` : ''}<span class="crumb-page">${UI.esc(nav.label)}</span>`;
     document.title = nav.label + ' · Mulawin FleetOps';
+=======
+    document.getElementById('appSidebar').classList.remove('mobile-open'); document.getElementById('sidebarOverlay').classList.remove('active');
+    document.getElementById('bcTitle').textContent = nav.label;
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
     const el = document.getElementById('pageContent');
     const def = this.pages[page];
     if (!def) {
@@ -350,11 +465,22 @@ const App = {
         <div class="module-down"><i class="bi bi-exclamation-triangle"></i><div>This page's screen file (assets/js/modules/${UI.esc(nav.js)}.js) did not load. The other pages still work. Reload the page or check the file.</div></div>`;
       return;
     }
+<<<<<<< HEAD
     el.innerHTML = `<div class="page-head"><div class="page-head-text"><h1 class="page-title" id="pageTitle">${UI.esc(def.title || nav.label)}</h1>${def.subtitle ? `<p class="page-subtitle" id="pageSubtitle">${UI.esc(def.subtitle)}</p>` : ''}</div>
         <div class="page-actions no-print" id="pageTools"></div></div>
         <div id="pageBody" class="page-body"><div class="loading-block"><span class="spinner-border spinner-border-sm"></span> Loading…</div></div>`;
     if (this._lastPage !== page) {
       window.scrollTo(0, 0);
+=======
+    // Nakadikit ang header (title at buttons) habang nag-i-scroll. Ang dashboard at reports
+    // ay may malalaking cards; ang ibang page (work pages) ay compact ang cards.
+    const work = !['dashboard', 'reports'].includes(page);
+    el.innerHTML = `<div class="page-header page-header-sticky d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div><div class="page-title">${UI.esc(def.title || nav.label)}</div><div class="page-subtitle">${UI.esc(def.subtitle || '')}</div></div>
+        <div class="d-flex gap-2 no-print" id="pageTools"></div></div><div id="pageBody" class="${work ? 'work-page' : ''}"><div class="text-muted p-4"><span class="spinner-border spinner-border-sm me-2"></span>Loading…</div></div>`;
+    if (this._lastPage !== page) {
+      window.scrollTo(0, 0); // only for a new page, not when the same page reloads after a save
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
       // A details drawer belongs to its page: close it when the user moves to another page.
       document.querySelectorAll('.offcanvas.app-drawer').forEach(o => { bootstrap.Offcanvas.getInstance(o)?.hide(); o.remove(); });
       document.querySelectorAll('.offcanvas-backdrop').forEach(x => x.remove());
@@ -397,10 +523,17 @@ UI.isDispatcher = () => UI.role('car_carrier_dispatcher', 'container_wingvan_dis
 /** Status colors: the same meaning everywhere (green = good, blue = in progress, amber = waiting, red = problem). */
 UI.badgeColor = (s) => {
   const v = String(s || '');
+<<<<<<< HEAD
   if (/^(Available|Completed|Paid|Approved|Released|Liquidated|Received|Active|OK|Resolved|Repaired - Cleared to Continue|Returned to service|Passed|Read)$/.test(v)) return 'green';
   if (/^(Assigned|Pre-Assigned|Ready for Dispatch|Dispatched|In Transit|On Trip|Ready for Release|Ongoing|Invoiced|For Billing|Partially Paid|Partially Released|Partially Received|Stock Out|Pending Payment|Under Inspection|Under Repair|Normal)$/.test(v)) return 'blue';
   if (/^(Pending Approval|Pending Review|Pending Rate|Awaiting Resources|Awaiting verification|Requested|Reported|Not Liquidated|Minor|Adjustment|Incomplete|Unpaid|Closed|High|Unread)$/.test(v)) return 'amber';
   if (/(Under Maintenance|On Hold|For Reschedule|Rejected|Cancelled|Not Available|Unavailable|Major|Overdue|Inactive|Delayed|Insufficient|Critical|Failed)/.test(v)) return 'red';
+=======
+  if (/^(Available|Completed|Paid|Approved|Released|Liquidated|Received|Active|OK|Resolved|Repaired - Cleared to Continue)$/.test(v)) return 'green';
+  if (/^(Assigned|Pre-Assigned|Ready for Dispatch|Dispatched|In Transit|On Trip|Ready for Release|Ongoing|Invoiced|For Billing|Partially Paid|Partially Released|Partially Received|Stock Out|Pending Payment)$/.test(v)) return 'blue';
+  if (/^(Pending Approval|Pending Review|Pending Rate|Awaiting Resources|Under Repair|Requested|Reported|Not Liquidated|Minor|Adjustment|Incomplete|Unpaid|Closed)$/.test(v)) return 'amber';
+  if (/(Under Maintenance|On Hold|For Reschedule|Rejected|Cancelled|Not Available|Unavailable|Major|Overdue|Inactive|Delayed|Insufficient)/.test(v)) return 'red';
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   return '';
 };
 UI.badge = (s) => s === null || s === undefined || s === '' ? '—' : `<span class="badge-s ${UI.badgeColor(s)}">${UI.esc(s)}</span>`;
@@ -628,7 +761,11 @@ UI.formModal = (title, fields, action, opts = {}) => UI.modal(title, (opts.intro
   UI.result(r);
   if (opts.after) opts.after(r); else App.route();
 }, opts);
+<<<<<<< HEAD
 UI.confirmAction = (title, text, action, payload, opts = {}) => UI.modal(title, `<p class="mb-${opts.fields ? 3 : 0}">${text}</p>${opts.fields ? UI.fields(opts.fields) : ''}`, async (d) => {
+=======
+UI.confirmAction = (title, text, action, payload, opts = {}) => UI.modal(title, `<p>${text}</p>${opts.fields ? UI.fields(opts.fields) : ''}`, async (d) => {
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   const r = await App.api(action, { ...payload, ...d }); UI.result(r);
   if (opts.after) opts.after(r); else { UI.closeDrawer(); App.route(); }
 }, { size: '', submit: opts.submit || 'Confirm', danger: opts.danger });
@@ -659,14 +796,23 @@ UI.tabs = (root, tabs, active, opts = {}) => {
 };
 
 // ------------------------------------------------------------------ charts (Chart.js, repo colors)
+<<<<<<< HEAD
 UI.palette = ['#1f2328', '#d99a1e', '#0b5cad', '#1a7f37', '#b5121b', '#6e7781', '#8250df', '#0891b2', '#9a6700', '#57606a'];
+=======
+UI.palette = ['#0e4a26', '#c78c00', '#3b82f6', '#66b878', '#c62828', '#8d6400', '#7c3aed', '#0891b2', '#64748b', '#f59e0b'];
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
 /** One color per meaning in every chart (status, money, aging, truck type). */
 UI.meaningColors = {
   'Available': '#1a7f37', 'On Trip': '#0b5cad', 'Under Maintenance': '#b5121b', 'Unavailable': '#8c959f',
   'Billed': '#2563eb', 'Collected': '#15803d', 'Expenses': '#c62828',
   'Cash in (collections)': '#15803d', 'Cash out (disbursements)': '#c62828',
+<<<<<<< HEAD
   'All trips': '#1f2328', 'Trips': '#1f2328', 'Completed': '#1a7f37', 'Completed trips': '#1a7f37',
   'Parts': '#0b5cad', 'Labor': '#d99a1e', 'Other': '#6e7781',
+=======
+  'All trips': '#0e4a26', 'Trips': '#0e4a26', 'Completed': '#66b878', 'Completed trips': '#66b878',
+  'Parts': '#0891b2', 'Labor': '#c78c00', 'Other': '#64748b',
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   'Not yet due': '#15803d', '1-30 days': '#f59e0b', '31-60 days': '#ea580c', '61-90 days': '#c62828', 'Over 90 days': '#7f1d1d',
   'Assigned': '#0b5cad',
   'Car Carrier': '#1f2328', 'Container': '#d99a1e', 'Wing Van': '#0b5cad',
@@ -860,6 +1006,7 @@ UI.printReport = (sections, meta = {}) => {
 UI.opts = (rows, labelFn, valueKey = 'id') => (rows || []).map(r => [r[valueKey], labelFn(r)]);
 UI.list = (arr) => (arr || []).map(x => [x, x]);
 
+<<<<<<< HEAD
 /**
  * One-shot deep links (?open=, ?report=, ?request_for=): returns the values and removes them from the
  * address without reloading, so a later page refresh after saving does not open the same form again.
@@ -874,6 +1021,8 @@ UI.takeQuery = (ctx, ...keys) => {
   }
   return out;
 };
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
 // ------------------------------------------------------------------ helpers added in the revision
 /** Form modal that also sends the files of the form (uses App.apiForm). */
 UI.formModalFiles = (title, fields, action, opts = {}) => UI.modal(title, (opts.intro ? `<div class="small text-muted mb-2">${opts.intro}</div>` : '') + UI.fields(fields), async (d, form, wrap) => {
@@ -956,6 +1105,7 @@ UI.docs = (list, empty = 'No documents attached.') => (list || []).length ? `<ul
 /** Section heading inside drawers. */
 UI.h = (text, extra = '') => `<div class="drawer-h"><span>${UI.esc(text)}</span>${extra}</div>`;
 
+<<<<<<< HEAD
 /**
  * Printable form with the company header used on every printout (PDF #13 formats).
  * opts.number = form number shown at the top right.
@@ -1117,11 +1267,42 @@ UI.mapPicker = (box, form, initial = {}) => {
   const info = box.querySelector('[data-mapinfo]');
   const label = (k) => k === 'pickup' ? 'pickup point' : 'destination';
   const addrField = (k) => field(k === 'pickup' ? 'pickup_point' : 'delivery_point');
+=======
+/** Printable form with the company header used on every printout (PDF #13 formats). */
+UI.printForm = (title, body, opts = {}) => {
+  const co = App.me.company || {};
+  UI.print(`<div class="pf"><div class="pf-head"><div class="pf-logo">RPM</div><div><div class="pf-co">${UI.esc(co.name || 'R P MULAWIN TRUCKING SERVICE')}</div>
+    <div class="pf-addr">${UI.esc(co.address || '')}</div></div>${opts.number ? `<div class="pf-no">${UI.esc(opts.number)}</div>` : ''}</div>
+    <div class="pf-title">${UI.esc(title)}</div>${body}
+    <div class="pf-foot">Printed from Mulawin FleetOps by ${UI.esc(App.me.user.full_name)} on ${UI.esc(new Date().toLocaleString('en-PH'))}</div></div>`);
+};
+UI.sign = (label, name = '') => `<div class="pf-sign"><div class="pf-line">${UI.esc(name)}</div><div class="pf-sl">${UI.esc(label)}</div></div>`;
+
+/**
+ * Map with two pins (pickup and delivery) using Leaflet + OpenStreetMap.
+ * Click the map to place the active pin; pins can be dragged. Shows the straight-line
+ * km for visuals; the billable km is still typed by the user (PDF #12 Scenario A step 3).
+ * box: element; form: the form with pickup_lat/lng, delivery_lat/lng inputs.
+ */
+UI.mapPicker = (box, form, initial = {}) => {
+  if (typeof L === 'undefined') { box.innerHTML = '<div class="table-empty small">The map library did not load. Type the places and the km.</div>'; return; }
+  box.innerHTML = `<div class="map-tools"><div class="btn-group btn-group-sm"><button type="button" class="btn btn-success active" data-pin="pickup"><i class="bi bi-geo-alt-fill"></i> Set pickup point</button>
+    <button type="button" class="btn btn-outline-danger" data-pin="delivery"><i class="bi bi-geo-fill"></i> Set delivery point</button></div>
+    <span class="small text-muted" data-mapinfo>Click the map to pin the pickup point.</span></div><div class="map-canvas"></div>
+    <div class="small mt-1 d-flex justify-content-between flex-wrap gap-2"><span class="text-muted">Map distance is a straight line, for visuals only. Type the actual billable km.</span><a href="#" target="_blank" rel="noopener" data-gmaps class="d-none"><i class="bi bi-box-arrow-up-right"></i> Road distance in Google Maps</a></div>`;
+  const map = L.map(box.querySelector('.map-canvas')).setView([14.35, 121.0], 9);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  const icon = (c) => L.divIcon({ className: 'pin-icon', html: `<i class="bi bi-geo-alt-fill" style="color:${c}"></i>`, iconSize: [28, 28], iconAnchor: [14, 28] });
+  const pins = {}; let active = 'pickup'; let line = null;
+  const info = box.querySelector('[data-mapinfo]'), gm = box.querySelector('[data-gmaps]');
+  const field = (n) => form.querySelector(`[name="${n}"]`);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   const update = () => {
     ['pickup', 'delivery'].forEach(k => { const p = pins[k]?.getLatLng(); if (field(k + '_lat')) { field(k + '_lat').value = p ? p.lat.toFixed(7) : ''; field(k + '_lng').value = p ? p.lng.toFixed(7) : ''; } });
     if (line) { line.remove(); line = null; }
     if (pins.pickup && pins.delivery) {
       const a = pins.pickup.getLatLng(), b = pins.delivery.getLatLng();
+<<<<<<< HEAD
       line = L.polyline([a, b], { color: '#1f2328', weight: 2, dashArray: '6 6' }).addTo(map);
       info.textContent = `Both points set · straight-line distance ${(a.distanceTo(b) / 1000).toFixed(1)} km`;
     }
@@ -1174,17 +1355,45 @@ UI.mapPicker = (box, form, initial = {}) => {
   else if (pins.pickup) map.setView(pins.pickup.getLatLng(), 13);
   if (pins.pickup && !pins.delivery) setActive('delivery');
   setTimeout(() => map.invalidateSize(), 250);
+=======
+      line = L.polyline([a, b], { color: '#c78c00', dashArray: '6 6' }).addTo(map);
+      info.textContent = `Straight-line distance: ${(a.distanceTo(b) / 1000).toFixed(1)} km`;
+      gm.href = `https://www.google.com/maps/dir/?api=1&origin=${a.lat},${a.lng}&destination=${b.lat},${b.lng}&travelmode=driving`; gm.classList.remove('d-none');
+    }
+  };
+  const place = (k, latlng) => {
+    if (pins[k]) pins[k].setLatLng(latlng);
+    else { pins[k] = L.marker(latlng, { draggable: true, icon: icon(k === 'pickup' ? '#15803d' : '#c62828') }).addTo(map).bindTooltip(k === 'pickup' ? 'Pickup' : 'Delivery'); pins[k].on('dragend', update); }
+    update();
+  };
+  const setActive = (k) => { active = k; box.querySelectorAll('[data-pin]').forEach(b => { const on = b.dataset.pin === k; b.classList.toggle('active', on);
+      b.className = 'btn btn-sm ' + (b.dataset.pin === 'pickup' ? (on ? 'btn-success' : 'btn-outline-success') : (on ? 'btn-danger' : 'btn-outline-danger')) + (on ? ' active' : ''); });
+    info.textContent = `Click the map to pin the ${k} point.`; };
+  box.querySelectorAll('[data-pin]').forEach(b => b.onclick = () => setActive(b.dataset.pin));
+  map.on('click', (e) => { place(active, e.latlng); if (active === 'pickup' && !pins.delivery) setActive('delivery'); });
+  if (initial.pickup_lat) place('pickup', [+initial.pickup_lat, +initial.pickup_lng]);
+  if (initial.delivery_lat) place('delivery', [+initial.delivery_lat, +initial.delivery_lng]);
+  if (pins.pickup && pins.delivery) map.fitBounds(L.latLngBounds([pins.pickup.getLatLng(), pins.delivery.getLatLng()]).pad(0.3));
+  setTimeout(() => map.invalidateSize(), 300);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   return map;
 };
 /** Read-only route map (trip details). */
 UI.routeMap = (box, t) => {
   if (typeof L === 'undefined' || !t.pickup_lat || !t.delivery_lat) { box.innerHTML = ''; box.classList.add('d-none'); return; }
   const map = L.map(box, { scrollWheelZoom: false });
+<<<<<<< HEAD
   UI.Map.tiles(map, (msg) => { box.insertAdjacentHTML('beforebegin', `<div class="loc-notice">${UI.esc(msg)}</div>`); });
   const a = [+t.pickup_lat, +t.pickup_lng], b = [+t.delivery_lat, +t.delivery_lng];
   const icon = (k) => L.divIcon({ className: 'pin-icon ' + k, html: `<i class="bi bi-geo-alt-fill"></i>`, iconSize: [30, 30], iconAnchor: [15, 29] });
   L.marker(a, { icon: icon('pickup') }).addTo(map).bindTooltip('Pickup: ' + t.pickup_point); L.marker(b, { icon: icon('delivery') }).addTo(map).bindTooltip('Destination: ' + t.delivery_point);
   L.polyline([a, b], { color: '#1f2328', weight: 2, dashArray: '6 6' }).addTo(map);
+=======
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  const a = [+t.pickup_lat, +t.pickup_lng], b = [+t.delivery_lat, +t.delivery_lng];
+  L.marker(a).addTo(map).bindTooltip('Pickup: ' + t.pickup_point); L.marker(b).addTo(map).bindTooltip('Delivery: ' + t.delivery_point);
+  L.polyline([a, b], { color: '#c78c00', dashArray: '6 6' }).addTo(map);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   map.fitBounds(L.latLngBounds([a, b]).pad(0.3)); setTimeout(() => map.invalidateSize(), 300);
 };
 
@@ -1195,6 +1404,7 @@ UI.payFields = (methods, dateName = 'released_on', dateLabel = 'Release date') =
   { name: 'reference_number', label: 'Reference no. (bank / e-wallet)', col: 4 },
   { name: 'cheque_number', label: 'Cheque no.', col: 4 }, { name: 'bank_name', label: 'Bank', col: 4 },
 ];
+<<<<<<< HEAD
 
 
 // Chart.js look that matches the design system.
@@ -1204,3 +1414,5 @@ if (typeof Chart !== 'undefined') {
   Chart.defaults.color = '#57606a';
   Chart.defaults.borderColor = '#e6e8eb';
 }
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71

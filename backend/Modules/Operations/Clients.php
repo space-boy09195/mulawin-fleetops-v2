@@ -107,7 +107,11 @@ final class Clients {
             run($p, 'UPDATE clients SET client_code=? WHERE id=?', ['CL-' . str_pad((string)$id, 3, '0', STR_PAD_LEFT), $id]);
             foreach (self::REQUIRED_DOCS as $input => $cat) Files::store($p, $u, $input, 'client', $id, $cat, true, $cat);
             audit($p, $u['id'], 'Clients', 'client ' . $id, 'client profile created', $row['company_name'] . ' -> Pending Rate');
+<<<<<<< HEAD
             Notify::roles($p, ['billing'], 'Client rate needed', 'New client ' . $row['company_name'] . ' is waiting for its billing rate.', 'clients', 'client-rate-' . $id);
+=======
+            Notify::roles($p, ['billing'], 'Client rate needed', 'New client ' . $row['company_name'] . ' is waiting for its billing rate.', 'clients');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             return ['id' => $id, 'message' => 'Client profile saved. It now waits for Billing to set the rate (Pending Rate).'];
         });
     }
@@ -143,7 +147,11 @@ final class Clients {
                 foreach (['business_address', 'contact_person', 'contact_number'] as $f) must(!empty($c[$f]), 'Complete the client information sheet (address, contact person, contact number) first.');
                 run($p, "UPDATE clients SET status='Pending Rate' WHERE id=?", [$id]);
                 audit($p, $u['id'], 'Clients', 'client ' . $id, 'client requirements completed', $c['company_name'] . ' -> Pending Rate');
+<<<<<<< HEAD
                 Notify::roles($p, ['billing'], 'Client rate needed', 'Client ' . $c['company_name'] . ' is complete and waiting for its billing rate.', 'clients', 'client-rate-' . $id);
+=======
+                Notify::roles($p, ['billing'], 'Client rate needed', 'Client ' . $c['company_name'] . ' is complete and waiting for its billing rate.', 'clients');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
                 $msg .= ' All requirements are complete; the client now waits for Billing to set the rate.';
             } elseif ($missing) $msg .= ' Still missing: ' . implode(', ', $missing) . '.';
             return ['message' => $msg];
@@ -178,7 +186,10 @@ final class Clients {
             $txt = implode('; ', array_map(fn($t, $r) => "$t {$r['rate_per_km']}/km" . ((float)$r['minimum_charge'] > 0 ? " (min {$r['minimum_charge']})" : ''), array_keys($clean), $clean));
             audit($p, $u['id'], 'Clients', 'client ' . $id, 'client rate set', $c['company_name'] . ': ' . $txt);
             if ($c['status'] === 'Pending Rate') {
+<<<<<<< HEAD
                 Notify::resolve($p, 'client-rate-' . $id);
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
                 Notify::roles($p, ['operations_head'], 'Client ready', 'Client ' . $c['company_name'] . ' is complete with its billing rate and can now be used for trips.', 'clients');
             }
             return ['message' => 'Rate saved. ' . $c['company_name'] . ' is Active and can be selected for trips.'];

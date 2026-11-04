@@ -116,8 +116,12 @@ final class Funds {
             }
             foreach ($lines as $l) insert($p, 'fund_request_lines', ['fund_request_id' => $fid] + $l);
             audit($p, $u['id'], 'Funds', 'fund ' . $fid, "fund request $verb", $ref . ' for ' . $t['trip_ref'] . ': PHP ' . $total);
+<<<<<<< HEAD
             Notify::resolve($p, 'fund-revise-' . $fid . '-*');
             Notify::roles($p, ['operations_head'], 'Fund approval', "Fund request $ref (" . $t['trip_ref'] . ") for PHP " . number_format((float)$total, 2) . " is waiting for approval.", 'funds', Notify::key('fund-approve-' . $fid));
+=======
+            Notify::roles($p, ['operations_head'], 'Fund approval', "Fund request $ref (" . $t['trip_ref'] . ") for PHP " . number_format((float)$total, 2) . " is waiting for approval.", 'funds');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             return ['fund_id' => $fid, 'message' => "Fund request $ref $verb (PHP " . number_format((float)$total, 2) . '). Waiting for Operations Head approval.'];
         });
     }
@@ -132,18 +136,29 @@ final class Funds {
             $f = one($p, 'SELECT f.*, t.trip_ref, t.dispatcher_role, t.status AS trip_status FROM fund_requests f JOIN trips t ON t.id=f.trip_id WHERE f.id=? FOR UPDATE', [$id]);
             must((bool)$f, 'Fund request not found.', 404);
             must($f['status'] === 'Pending Approval', 'This request is ' . $f['status'] . ', not Pending Approval.', 409);
+<<<<<<< HEAD
             Notify::resolve($p, 'fund-approve-' . $f['id'] . '-*');
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             must(!in_array($f['trip_status'], ['Cancelled', 'Rejected', 'Completed'], true), 'The trip is ' . $f['trip_status'] . '.', 409);
             if ($decision === 'approve') {
                 run($p, "UPDATE fund_requests SET status='Ready for Release', approved_by=?, approved_at=NOW() WHERE id=?", [$u['id'], $id]);
                 audit($p, $u['id'], 'Funds', 'fund ' . $id, 'fund request approved', $f['fund_ref'] . ' -> Ready for Release');
+<<<<<<< HEAD
                 Notify::roles($p, ['finance'], 'Fund release', $f['fund_ref'] . ' (' . $f['trip_ref'] . ') PHP ' . number_format((float)$f['amount'], 2) . ' is Ready for Release.', 'funds', 'fund-release-' . $f['id']);
+=======
+                Notify::roles($p, ['finance'], 'Fund release', $f['fund_ref'] . ' (' . $f['trip_ref'] . ') PHP ' . number_format((float)$f['amount'], 2) . ' is Ready for Release.', 'funds');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
                 Notify::user($p, (int)$f['requested_by'], 'Fund approved', $f['fund_ref'] . ' was approved and is waiting for Finance release.', 'funds');
                 return ['message' => 'Approved. The request is Ready for Release and now appears to Finance.'];
             }
             run($p, "UPDATE fund_requests SET status='Rejected', rejected_reason=? WHERE id=?", [$reason, $id]);
             audit($p, $u['id'], 'Funds', 'fund ' . $id, 'fund request rejected', $f['fund_ref'] . ': ' . $reason);
+<<<<<<< HEAD
             Notify::user($p, (int)$f['requested_by'], 'Fund rejected', $f['fund_ref'] . ' was rejected: ' . $reason . '. Please revise and resubmit.', 'funds', Notify::key('fund-revise-' . $f['id']));
+=======
+            Notify::user($p, (int)$f['requested_by'], 'Fund rejected', $f['fund_ref'] . ' was rejected: ' . $reason . '. Please revise and resubmit.', 'funds');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             return ['message' => 'Rejected. The dispatcher can revise and resubmit it.'];
         });
     }
@@ -166,7 +181,10 @@ final class Funds {
             audit($p, $u['id'], 'Funds', 'fund ' . $id, 'fund released', $f['fund_ref'] . ' PHP ' . $f['amount'] . ' via ' . $pay['payment_method']);
             Notify::user($p, (int)$f['requested_by'], 'Fund released', $f['fund_ref'] . ' (' . $f['trip_ref'] . ') is Released. Confirm Dispatch is enabled once the checklist is done.', 'trips');
             Notify::roles($p, ['operations_head'], 'Fund released', $f['fund_ref'] . ' (' . $f['trip_ref'] . ') was released.', 'funds');
+<<<<<<< HEAD
             Notify::resolve($p, 'fund-release-' . $f['id']);
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             $v = one($p, 'SELECT voucher_number FROM disbursements WHERE id=?', [$disb])['voucher_number'];
             return ['message' => "Release confirmed (voucher $v). Fund status: Released."];
         });

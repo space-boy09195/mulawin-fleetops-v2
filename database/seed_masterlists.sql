@@ -5,7 +5,10 @@
 --                                      COMPANY NAME, OFFICIAL RECEIPT REGISTRATION sheet)
 --   CONTAINER MONITORING 2026.xlsx    (container and wing van trucks, drivers, helpers, companies)
 -- Only masterlist data is imported (no trips, no money). Import AFTER schema.sql and extension.sql.
+<<<<<<< HEAD
 -- Mechanics at the end are FICTIONAL sample records (the workbooks have no mechanic list).
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
 -- Clients start as 'Incomplete': the Operations Head completes the client information sheet
 -- and uploads the accreditation files, then Billing sets the rate (PDF #12 Scenario A step 2).
 -- =====================================================================
@@ -173,6 +176,7 @@ INSERT INTO clients (client_code, company_name, status, notes) VALUES
   ('CL-011', 'CJ SMART FREIGHT, INC.', 'Incomplete', 'Imported from monitoring workbook. Complete the client information sheet and accreditation files.'),
   ('CL-012', 'SECURED LOGISTICS & BROKERAGE SPECIALISTS, INC.', 'Incomplete', 'Imported from monitoring workbook. Complete the client information sheet and accreditation files.'),
   ('CL-013', 'JMSJ CUSTOMS BROKERAGE AND LOGISTICS, INC.', 'Incomplete', 'Imported from monitoring workbook. Complete the client information sheet and accreditation files.');
+<<<<<<< HEAD
 
 -- Mechanic Masterlist (fictional sample mechanics for corrective maintenance; edit or deactivate as needed)
 INSERT INTO mechanics (mechanic_code, full_name, contact_number, specialization, notes) VALUES
@@ -184,3 +188,5 @@ INSERT INTO mechanics (mechanic_code, full_name, contact_number, specialization,
   ('MEC-006', 'SALAZAR, BENJIE', '0922 555 0106', 'Air conditioning and cooling', 'Sample record'),
   ('MEC-007', 'TORRES, NOEL', '0923 555 0107', 'Hydraulics (car carrier ramps)', 'Sample record'),
   ('MEC-008', 'AQUINO, RENATO', '0924 555 0108', 'General mechanic', 'Sample record');
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71

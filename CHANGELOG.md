@@ -1,5 +1,6 @@
 # Changelog
 
+<<<<<<< HEAD
 ## 2026-11-04 (revision 2: email login codes, e-signature, corrective maintenance, mechanics, map, redesign, demo scripts)
 Source: "Consolidated additional project requirements". Decisions confirmed by the team: Gmail + App Password for the
 login emails, the operator types the login codes in the scripts, the Admin sets new users' passwords, MapTiler free plan
@@ -86,6 +87,8 @@ for the map.
 - `tests/system_test.py`, `tests/e2e_workflow.py` and `tests/formula_test.php` were not changed; they still test
   features removed in revision 1 (payroll, PMS) and fail at those steps.
 
+=======
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
 ## 2026-11-04 (system revision: masterlists, simplified trip workflow, objective alignment)
 Reference files: PDF #14 (objectives), PDF #12 (workflow), PDF #11 (system requirements), PDF #13 (form formats).
 Client dummy data: CAR CARRIER and CONTAINER MONITORING 2026 workbooks (only the fields the system needs).

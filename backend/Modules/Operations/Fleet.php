@@ -28,14 +28,24 @@ final class Fleet {
     public static function read(array $u, string $page, array $q): array {
         $p = db();
         if ($page === 'trucks') {
+<<<<<<< HEAD
+=======
+            $months = max(1, (int)Settings::value('pms_interval_months'));
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
             $data = readSections([
                 'trucks' => fn() => many($p, "SELECT v.*, d.full_name AS driver_name, h.full_name AS helper_name,
                         t.id AS trip_id, t.trip_ref, t.status AS trip_status,
                         DATEDIFF(v.registration_expiry, CURRENT_DATE()) AS reg_days, DATEDIFF(v.insurance_expiry, CURRENT_DATE()) AS ins_days,
+<<<<<<< HEAD
                         (SELECT m.id FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.open_key=1 LIMIT 1) AS open_job_id,
                         (SELECT m.job_ref FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.open_key=1 LIMIT 1) AS open_job,
                         (SELECT m.status FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.open_key=1 LIMIT 1) AS open_job_status,
                         (SELECT m.expected_completion FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.open_key=1 LIMIT 1) AS expected_back
+=======
+                        DATE_ADD(v.last_pms_date, INTERVAL $months MONTH) AS next_pms,
+                        (SELECT m.job_ref FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.status IN ('Reported','Ongoing') ORDER BY m.id LIMIT 1) AS open_job,
+                        (SELECT m.expected_completion FROM maintenance_jobs m WHERE m.vehicle_id=v.id AND m.status IN ('Reported','Ongoing') ORDER BY m.id LIMIT 1) AS expected_back
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
                     FROM vehicles v
                     LEFT JOIN personnel d ON d.id=v.assigned_driver_id LEFT JOIN personnel h ON h.id=v.assigned_helper_id
                     LEFT JOIN trip_assignments a ON a.resource_type='vehicle' AND a.resource_id=v.id
@@ -98,8 +108,15 @@ final class Fleet {
             'insurance_provider' => optField($d, 'insurance_provider', 120), 'insurance_policy_number' => optField($d, 'insurance_policy_number', 80),
             'insurance_expiry' => dateField($d, 'insurance_expiry', false),
             'assigned_driver_id' => optId($d, 'assigned_driver_id'), 'assigned_helper_id' => optId($d, 'assigned_helper_id'),
+<<<<<<< HEAD
             'notes' => optField($d, 'notes', 255),
         ];
+=======
+            'last_pms_date' => dateField($d, 'last_pms_date', false),
+            'notes' => optField($d, 'notes', 255),
+        ];
+        if ($row['last_pms_date']) must($row['last_pms_date'] <= date('Y-m-d'), 'Last PMS date cannot be in the future.');
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         return transaction(function (PDO $p) use ($u, $id, $row) {
             $dup = one($p, 'SELECT id FROM vehicles WHERE plate_number=? AND id<>?', [$row['plate_number'], $id ?? 0]);
             must(!$dup, 'Plate number ' . $row['plate_number'] . ' is already registered.', 409);
@@ -124,8 +141,13 @@ final class Fleet {
 
     /**
      * Manual availability: Available or Unavailable.
+<<<<<<< HEAD
      * "Under Maintenance" comes only from Corrective Maintenance (a repair record always
      * exists) and ends only when the repair is verified there.
+=======
+     * "Under Maintenance" is set by Maintenance > Start Maintenance (so a repair
+     * record always exists) and goes back to Available by Confirm Repair.
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
      */
     private static function truckStatus(array $u, array $d): array {
         requireRole($u, ...self::STATUS);
@@ -139,7 +161,11 @@ final class Fleet {
             $trip = FleetState::activeTrip($p, $id);
             $msg = '';
             if ($to === 'Available') {
+<<<<<<< HEAD
                 must(!$job, 'This truck has an unresolved repair (' . ($job['job_ref'] ?? '') . ', ' . ($job['status'] ?? '') . '). It becomes available only after the repair is completed and verified in Corrective Maintenance.', 409);
+=======
+                must(!$job, 'This truck has an open maintenance job (' . ($job['job_ref'] ?? '') . '). Confirm the repair in Maintenance first.', 409);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
                 run($p, 'UPDATE vehicles SET status_reason=NULL WHERE id=?', [$id]);
                 if ($v['status'] === 'Unavailable') FleetState::setStatus($p, $id, 'Available', $u['id'], $reason ?: 'Set Available');
                 $now = FleetState::reconcile($p, $id, $u['id'], 'Availability check');
@@ -186,9 +212,13 @@ final class Fleet {
             'truck' => $v,
             'trips' => many($p, "SELECT t.id, t.trip_ref, t.status, t.scheduled_at, t.pickup_point, t.delivery_point, c.company_name AS client, d.full_name AS driver_name
                 FROM trips t JOIN clients c ON c.id=t.client_id LEFT JOIN personnel d ON d.id=t.driver_id WHERE t.vehicle_id=? ORDER BY t.scheduled_at DESC LIMIT 50", [$id]),
+<<<<<<< HEAD
             'openJob' => FleetState::openJob($p, $id),
             'maintenance' => many($p, "SELECT m.id, m.job_ref, m.source, m.problem, IF(m.status='Completed' AND m.verified_at IS NULL, 'Awaiting verification', m.status) AS status, m.reported_on, m.completed_on,
                 (SELECT mc.full_name FROM mechanics mc WHERE mc.id=m.mechanic_id) AS mechanic,
+=======
+            'maintenance' => many($p, "SELECT m.id, m.job_ref, m.source, m.problem, m.status, m.created_at, m.completed_on,
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
                 (SELECT COALESCE(SUM(c.amount),0) FROM maintenance_costs c WHERE c.maintenance_job_id=m.id) +
                 (SELECT COALESCE(SUM(l.released_qty*l.unit_cost),0) FROM part_request_lines l JOIN part_requests r ON r.id=l.part_request_id WHERE r.maintenance_job_id=m.id) AS cost
                 FROM maintenance_jobs m WHERE m.vehicle_id=? ORDER BY m.id DESC LIMIT 50", [$id]),

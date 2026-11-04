@@ -74,10 +74,17 @@ const PurUI = {
     UI.printForm('REQUEST FORM', `<div class="pf-grid"><div><b>Truck No. / Trailer No.:</b> ${UI.esc(q.plate_number)}${q.truck_number ? ' #' + UI.esc(q.truck_number) : ''}</div><div><b>DATE:</b> ${UI.date(q.created_at)}</div>
       <div><b>Model No. / Engine No.:</b> ${UI.esc([q.make_brand, q.engine_number].filter(Boolean).join(' / '))}</div><div><b>Series No.:</b> ${UI.esc(q.request_ref)}</div></div>
       <div class="mt-1"><b>PARTICULARS</b></div><table><thead><tr><th style="width:12%">ITEM NO.</th><th>ITEMS / DESCRIPTION</th><th class="num" style="width:12%">QTY.</th><th style="width:12%">UNIT</th></tr></thead>
+<<<<<<< HEAD
       <tbody>${r.lines.map(l => `<tr><td>${UI.esc(l.part_number)}</td><td>${UI.esc(l.description)}</td><td class="num">${l.quantity}</td><td>${UI.esc(l.unit)}</td></tr>`).join('')}${UI.pfBlank(4, r.lines.length, 12)}
       <tr><th colspan="2">TOTAL</th><th class="num">${r.lines.reduce((a, l) => a + +l.quantity, 0)}</th><th></th></tr></tbody></table>
       <div><b>Reason / Purpose:</b> ${UI.esc(q.purpose)}${q.job_ref ? ' (' + UI.esc(q.job_ref) + ')' : ''}</div>
       <div class="pf-signs">${UI.sign('Requested by', q.requested_by_name, q.requested_by)}${UI.sign('Received by', q.processed_by_name || '', q.processed_by)}${UI.sign('Approved by')}</div>`, { number: q.request_ref });
+=======
+      <tbody>${r.lines.map(l => `<tr><td>${UI.esc(l.part_number)}</td><td>${UI.esc(l.description)}</td><td class="num">${l.quantity}</td><td>${UI.esc(l.unit)}</td></tr>`).join('')}
+      <tr><th colspan="2">TOTAL</th><th class="num">${r.lines.reduce((a, l) => a + +l.quantity, 0)}</th><th></th></tr></tbody></table>
+      <div><b>Reason / Purpose:</b> ${UI.esc(q.purpose)}${q.job_ref ? ' (' + UI.esc(q.job_ref) + ')' : ''}</div>
+      <div class="pf-signs">${UI.sign('Requested by', q.requested_by_name)}${UI.sign('Received by', q.processed_by_name || '')}${UI.sign('Approved by')}</div>`, { number: q.request_ref });
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   },
   async printPO(o) {
     const r = await App.api('Purchasing.po_details', { po_id: o.id }); const p = r.po;
@@ -86,10 +93,18 @@ const PurUI = {
       <div><b>ADDRESS:</b> ${UI.esc(p.supplier_address || '')}</div><div><b>CONTACT:</b> ${UI.esc([p.supplier_contact, p.supplier_phone].filter(Boolean).join(' · '))}</div>
       <div style="grid-column:1/3"><b>PURPOSE:</b> ${UI.esc(p.purpose)}${p.request_ref ? ' (from ' + UI.esc(p.request_ref) + ')' : ''}</div></div>
       <table><thead><tr><th>Part no.</th><th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit price</th><th class="num">Amount</th></tr></thead>
+<<<<<<< HEAD
       <tbody>${r.lines.map(l => `<tr><td>${UI.esc(l.part_number)}</td><td>${UI.esc(l.description)}</td><td class="num">${l.quantity}</td><td>${UI.esc(l.unit)}</td><td class="num">${UI.money(l.unit_price)}</td><td class="num">${UI.money(l.line_total)}</td></tr>`).join('')}${UI.pfBlank(6, r.lines.length, 8)}
       <tr><th colspan="5">TOTAL</th><th class="num">${UI.money(p.total_amount)}</th></tr></tbody></table>
       <div class="pf-note">Status: ${UI.esc(p.status)}${approved ? ' · Approved by ' + UI.esc(p.decided_by_name) + ' (' + (p.approver_role === 'finance' ? 'Finance' : 'Admin') + ') on ' + UI.datetime(p.decided_at) + '. Budget reserved by the system.' : ' · NOT APPROVED — do not use for purchasing.'}</div>
       <div class="pf-signs">${UI.sign('Requested by (Purchasing Officer)', p.requested_by_name, p.requested_by)}${UI.sign('Approved by (' + (p.approver_role === 'finance' ? 'Finance' : 'Admin') + ')' + (approved ? ' · approved in the system' : ''), approved ? p.decided_by_name : '', approved ? p.decided_by : null)}</div>`, { number: p.po_ref });
+=======
+      <tbody>${r.lines.map(l => `<tr><td>${UI.esc(l.part_number)}</td><td>${UI.esc(l.description)}</td><td class="num">${l.quantity}</td><td>${UI.esc(l.unit)}</td><td class="num">${UI.money(l.unit_price)}</td><td class="num">${UI.money(l.line_total)}</td></tr>`).join('')}
+      <tr><th colspan="5">TOTAL</th><th class="num">${UI.money(p.total_amount)}</th></tr></tbody></table>
+      <div class="pf-note">Status: ${UI.esc(p.status)}${approved ? ' · Approved by ' + UI.esc(p.decided_by_name) + ' (' + (p.approver_role === 'finance' ? 'Finance' : 'Admin') + ') on ' + UI.datetime(p.decided_at) + '. Budget reserved by the system.' : ' · NOT APPROVED — do not use for purchasing.'}</div>
+      <div class="pf-signs">${UI.sign('Requested by (Purchasing Officer)', p.requested_by_name)}
+        <div class="pf-sign"><div class="pf-line">${approved && p.approver_signature ? `<img src="${UI.docUrl(p.approver_signature)}" alt="e-signature">` : (approved ? UI.esc(p.decided_by_name) : '')}</div><div class="pf-sl">Approved by (${p.approver_role === 'finance' ? 'Finance' : 'Admin'})${approved ? ' · digitally approved' : ''}</div></div></div>`, { number: p.po_ref });
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   },
   async receive(o) {
     const r = await App.api('Purchasing.po_details', { po_id: o.id });
@@ -182,7 +197,11 @@ App.page('purchasing', {
         return h;
       }],
     ], can.approveSmall || can.approveBig ? 'orders' : null);
+<<<<<<< HEAD
     const once = UI.takeQuery(ctx, 'request_for', 'job');
     if (once.request_for && can.request) PurUI.newRequest(once.request_for, once.job);
+=======
+    if (ctx.query.request_for && can.request) PurUI.newRequest(ctx.query.request_for, ctx.query.job);
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   },
 });

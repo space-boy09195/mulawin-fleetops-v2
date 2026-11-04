@@ -4,16 +4,25 @@
    Backend: backend/Modules/Administration/Admin.php */
 'use strict';
 App.page('admin', {
+<<<<<<< HEAD
   title: 'User Management',
+=======
+  title: 'Administration',
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
   subtitle: 'User accounts, settings, activity log and backup.',
   render(ctx) {
     const d = ctx.data, isAdmin = d.can.admin, roles = Object.entries(d.roles);
     const userForm = (u = {}) => {
       const wrap = UI.formModal(u.id ? 'Edit ' + UI.esc(u.username) : 'New user account', [
+<<<<<<< HEAD
         { name: 'full_name', label: 'Full name', required: true, col: 6, value: u.full_name },
         ...(u.id ? [] : [{ name: 'username', label: 'Username', required: true, col: 6, help: 'Letters, numbers, dot, dash or underscore.' }]),
         { name: 'email', label: 'Email (login codes are sent here)', type: 'email', required: true, col: 6, value: u.email },
         ...(u.id ? [] : [{ name: 'password', label: 'Password', type: 'password', required: true, col: 6, attrs: 'autocomplete="new-password"', help: (App.me.passwordMin || 8) + '+ characters with letters and numbers. Give it to the user privately.' }]),
+=======
+        ...(u.id ? [] : [{ name: 'username', label: 'Username', required: true, col: 6 }, { name: 'password', label: 'Temporary password', type: 'password', required: true, col: 6, help: (App.me.passwordMin || 8) + '+ characters with letters and numbers. The user changes it at first login.' }]),
+        { name: 'full_name', label: 'Full name', required: true, col: 6, value: u.full_name },
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
         { name: 'role', label: 'Role', type: 'select', options: roles, required: true, col: 6, value: u.role },
         { name: 'shift', label: 'Shift (dispatchers)', type: 'select', options: UI.list(['Day', 'Night']), col: 6, value: u.shift }], 'Admin.user_save', { extra: u.id ? { id: u.id } : {} });
       const role = wrap.querySelector('[name=role]'), shift = wrap.querySelector('[name=shift]').closest('[class*=col-]');
@@ -22,6 +31,7 @@ App.page('admin', {
     const tabs = [];
     if (isAdmin) {
       tabs.push(['users', 'User accounts', (body) => {
+<<<<<<< HEAD
         const h = UI.table([['Name', 'full_name'], ['Username', 'username'], ['Email', 'email'], ['Role', 'role', (v) => UI.esc(d.roles[v] || v)], ['Shift', 'shift'], ['Active', 'active', (v) => +v ? UI.badge('Active') : UI.badge('Inactive')],
           ['E-signature', 'has_signature', 'yes'], ['Last login', 'last_login_at', 'datetime']], d.users,
           { title: 'Accounts (one per employee; access follows the role)', tools: '<button class="btn btn-sm btn-primary" data-adduser><i class="bi bi-person-plus"></i> New account</button>',
@@ -41,6 +51,27 @@ App.page('admin', {
           <li><b>Finance</b>: releases trip funds, approves purchase orders up to the limit, pays, expenses, budget.</li>
           <li><b>Billing and Collection</b>: client rates, billing, invoices, payments, receivables.</li>
           <li><b>Audit</b>: read-only access to records and the activity log.</li></ul></div></section>`;
+=======
+        const h = UI.table([['Name', 'full_name'], ['Username', 'username'], ['Role', 'role', (v) => UI.esc(d.roles[v] || v)], ['Shift', 'shift'], ['Active', 'active', (v) => +v ? UI.badge('Active') : UI.badge('Inactive')],
+          ['E-signature', 'has_signature', 'yes'], ['Last login', 'last_login_at', 'datetime']], d.users,
+          { title: 'Accounts (one per employee; access follows the role)', tools: '<button class="btn btn-sm btn-primary" data-adduser><i class="bi bi-person-plus"></i> New account</button>',
+            actions: (u) => UI.btn('edit', 'Edit') + UI.btn('pw', 'Reset password', 'outline-secondary') + (u.id == App.me.user.id ? '' : UI.btn('toggle', +u.active ? 'Deactivate' : 'Activate', +u.active ? 'outline-danger' : 'outline-success')),
+            onAction: (a, u) => {
+              if (a === 'edit') userForm(u);
+              if (a === 'pw') UI.formModal('Reset password of ' + UI.esc(u.username), [{ name: 'password', label: 'New temporary password', type: 'password', required: true, col: 12 }], 'Admin.user_password', { extra: { user_id: u.id }, size: '' });
+              if (a === 'toggle') UI.confirmAction((+u.active ? 'Deactivate ' : 'Activate ') + UI.esc(u.full_name), +u.active ? 'The user can no longer log in. Records made by this user are kept.' : 'The user can log in again.', 'Admin.user_toggle', { user_id: u.id, active: +u.active ? 0 : 1 }, { danger: +u.active });
+            } });
+        setTimeout(() => body.querySelector('[data-adduser]')?.addEventListener('click', () => userForm()), 0);
+        return h + `<div class="card card-gap"><div class="card-body-custom small"><b>What each role can do</b><ul class="mb-0 mt-2">
+          <li><b>Admin (Head Management)</b>: dashboards, reports, users, settings, backup; approves purchase orders above the limit.</li>
+          <li><b>Operations Head</b>: creates and reviews trips, approves fund requests, changes assignments, keeps the truck, driver and client masterlists.</li>
+          <li><b>Dispatchers</b> (Car Carrier; Container / Wing Van): trip requests, fund requests, checklist, dispatch, updates, incidents, completion of their truck types.</li>
+          <li><b>Motorpool Custodian</b>: assesses incidents, repairs and PMS, truck availability, requests parts.</li>
+          <li><b>Purchasing Officer</b>: releases parts, inventory, suppliers, purchase orders and receiving.</li>
+          <li><b>Finance</b>: releases trip funds, approves purchase orders up to the limit, pays, expenses, budget.</li>
+          <li><b>Billing and Collection</b>: client rates, billing, invoices, payments, receivables.</li>
+          <li><b>Audit</b>: read-only access to records and the activity log.</li></ul></div></div>`;
+>>>>>>> 3880a1d81dc705c6f620bac95f846cca1bedfd71
       }]);
       tabs.push(['settings', 'Settings', () => UI.table([['Setting', 'label', (v, s) => `<b>${UI.esc(v)}</b>${s.help ? `<div class="small text-muted">${UI.esc(s.help)}</div>` : ''}`], ['Value', 'value', (v, s) => `${UI.num(v, 2)} ${UI.esc(s.unit)}`],
           ['Default', 'default', (v, s) => `${UI.num(v, 2)} ${UI.esc(s.unit)}`]], d.settings, { title: 'System settings', actions: () => UI.btn('edit', 'Change'),
